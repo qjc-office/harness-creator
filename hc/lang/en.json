@@ -1,5 +1,5 @@
 {
-  "correction": ["(^|[.!?;,]\\s*)(no[,.!]?\\s+)?(don.t|do not)\\b(?!\\s+forget)(?=.*\\b(that|this|it|again|ever|anymore)\\b)", "\\b(that.s|this is|it.s) (wrong|incorrect)", "\\byou(.re| are) (wrong|incorrect)"],
+  "correction": ["(^|[.!?;,]\\s*)((no|please|i said)[,.!]?\\s+)?(don.t|do not)\\b(?![^.!?\\n]*\\b(yet|until|worry|hesitate|forget|know)\\b)", "\\b(that.s|this is|it.s) (wrong|incorrect)", "\\byou(.re| are) (wrong|incorrect)"],
   "non_user_prefixes": ["you are a ", "you are an ", "you are the ", "you're a ", "you're an ", "<system-reminder"],
   "non_user_signatures": ["autonomous loop", "you are an expert at upholding", "api error", "reply exactly", "answer one word",
                           "one word only", "do not use tools", "list the tools available", "open this exact"],
