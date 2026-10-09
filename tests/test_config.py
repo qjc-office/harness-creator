@@ -8,8 +8,9 @@ def test_data_dir_precedence(tmp_path, monkeypatch):
     monkeypatch.delenv("HC_DATA_DIR", raising=False)
     assert C.data_source() == "fallback"
     assert C.data_dir_path() == pathlib.Path(os.environ["HOME"]) / ".claude/harness-creator"
-    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "pd"))
-    assert C.data_source() == "CLAUDE_PLUGIN_DATA" and C.data_dir_path() == tmp_path / "pd"
+    pd = tmp_path / "plugins/data/harness-creator-qjc"
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(pd))
+    assert C.data_source() == "CLAUDE_PLUGIN_DATA" and C.data_dir_path() == pd
     monkeypatch.setenv("HC_DATA_DIR", str(tmp_path / "t"))
     assert C.data_source() == "HC_DATA_DIR" and C.data_dir_path() == tmp_path / "t"
 
@@ -17,6 +18,20 @@ def test_empty_plugin_data_falls_back(monkeypatch):
     monkeypatch.delenv("HC_DATA_DIR", raising=False)
     monkeypatch.setenv("CLAUDE_PLUGIN_DATA", "")
     assert C.data_source() == "fallback"
+    assert C.data_dir_path() == pathlib.Path(os.environ["HOME"]) / ".claude/harness-creator"
+
+def test_foreign_plugin_data_ignored(tmp_path, monkeypatch):
+    """다른 플러그인 값이 세션 환경에 새어 들어와도(실측: codex) 쓰지 않는다."""
+    monkeypatch.delenv("HC_DATA_DIR", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / "plugins/data/codex-openai-codex"))
+    assert C.data_source() == "fallback"
+    assert C.data_dir_path() == pathlib.Path(os.environ["HOME"]) / ".claude/harness-creator"
+
+def test_own_plugin_data_used(tmp_path, monkeypatch):
+    monkeypatch.delenv("HC_DATA_DIR", raising=False)
+    pd = tmp_path / "plugins/data/harness-creator-qjc"
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(pd) + "/")
+    assert C.data_source() == "CLAUDE_PLUGIN_DATA" and C.data_dir_path() == pd
 
 def test_data_dir_0700(cache):
     d = C.data_dir()

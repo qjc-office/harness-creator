@@ -12,10 +12,16 @@ class ConfigError(Exception):
 def expand(p) -> pathlib.Path:
     return pathlib.Path(os.path.expanduser(str(p)))
 
+PLUGIN_DATA_PREFIX = "harness-creator"
+
 def data_source() -> str:
+    """HC_DATA_DIR > 자기 몫의 CLAUDE_PLUGIN_DATA > 폴백.
+    스킬 Bash에는 다른 플러그인의 CLAUDE_PLUGIN_DATA가 새어 들어올 수 있어(CLI 2.1.295 실측),
+    마지막 경로 성분이 harness-creator로 시작할 때만 받는다."""
     if os.environ.get("HC_DATA_DIR"):
         return "HC_DATA_DIR"
-    if os.environ.get("CLAUDE_PLUGIN_DATA"):
+    pd = os.environ.get("CLAUDE_PLUGIN_DATA", "")
+    if pd and expand(pd).name.startswith(PLUGIN_DATA_PREFIX):
         return "CLAUDE_PLUGIN_DATA"
     return "fallback"
 
