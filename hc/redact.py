@@ -11,28 +11,38 @@ class RedactError(Exception):
 _SECRET = re.compile(
     r"(?<![A-Za-z0-9])(?:"
     r"sk-[A-Za-z0-9_\-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}"
-    r"|sbp_[A-Za-z0-9]{12,}|vcp_[A-Za-z0-9]{12,}|xox[abprs]-[A-Za-z0-9\-]{10,}"
-    r"|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"
+    r"|sbp_[A-Za-z0-9]{12,}|vcp_[A-Za-z0-9]{12,}|xox[abeprs]-[A-Za-z0-9\-]{10,}|xapp-[A-Za-z0-9\-]{10,}"
+    r"|(?:AKIA|ASIA)[0-9A-Z]{16}|eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"
     r"|AIza[0-9A-Za-z_\-]{30,}|(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{10,}"
     r")"
+)
+# 대입문. 키 이름 뒤 따옴표(JSON·dict)와 역슬래시 이스케이프(\"key\": \"v\")를 허용한다.
+# 따옴표로 열린 값은 짝 따옴표(잘린 레코드면 줄 끝) 전까지 공백을 포함해 가리고(패스프레이즈),
+# 따옴표 없는 값은 공백과 구조 문자 } ) , ; & 앞에서 멈춘다(JSON·쿼리 구조 보존).
+# 키 이름 앞뒤 길이 상한 64는 긴 영숫자열에서의 이차 역추적을 막는다.
+_ASSIGN = re.compile(
+    r"(?<![A-Za-z0-9_])([A-Z0-9_]{0,64}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]{0,64})(?![A-Za-z0-9_])"
+    r"(\\?[\"']?\s*[=:]\s*)"
+    r"(?:(\\?[\"'])(?=(?:[^\"'\n\\]|\\(?![\"'])){8,}(?:\\?[\"']|\n|\Z))(?:[^\"'\n\\]|\\(?![\"']))+"
+    r"|[^\s\"'}),;&]{8,})",
+    re.I,
 )
 _SECRET_SUBS = (
     (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S), "[SECRET]"),
     (_SECRET, "[SECRET]"),
-    # 키 이름 뒤 따옴표를 허용한다: {"CRON_SECRET": "..."} 같은 JSON·dict 형태
-    (re.compile(r"(?<![A-Za-z0-9_])([A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*)([\"']?\s*[=:]\s*[\"']?)[^\s\"']{8,}", re.I),
-     r"\1\2[SECRET]"),
+    (_ASSIGN, lambda m: m.group(1) + m.group(2) + (m.group(3) or "") + "[SECRET]"),
     (re.compile(r"(?<![A-Za-z0-9_])Bearer\s+[A-Za-z0-9._\-~+/=]{16,}", re.I), "Bearer [SECRET]"),
 )
 _CN_ID = re.compile(r"(?<![0-9A-Za-z])[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[0-9Xx](?![0-9A-Za-z])")
-_KR_RRN = re.compile(r"(?<!\d)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])-[1-8]\d{6}(?!\d)")
+_KR_RRN = re.compile(r"(?<!\d)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])[-\s]?[1-8]\d{6}(?!\d)")
 _CARD = re.compile(r"(?<![\d-])\d(?:[ -]?\d){12,18}(?![\d-])")
 _PHONE = re.compile(
     r"(?<![\d-])(?:\+?82[-\s]?1[016-9]|01[016-9])[-\s]?\d{3,4}[-\s]?\d{4}(?![\d-])"
     r"|(?<![\d-])(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}(?![\d-])"
     r"|(?<![\d-])(?:\+?1[-.\s]?)?(?:\([2-9]\d{2}\)\s?|[2-9]\d{2}[-.\s])[2-9]\d{2}[-.\s]\d{4}(?![\d-])"
 )
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# 로컬 부분 앞 경계와 길이 상한으로 긴 무공백 입력에서의 이차 시간 역추적을 막는다.
+_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63})+")
 _HOME = re.compile(r"(?:/Users|/home)/(?!Shared(?:/|$))[^/\s\"'<>:]+")
 _WIN_HOME = re.compile(r"[A-Za-z]:(?:\\\\|\\)Users(?:\\\\|\\)[^\\/\s\"'<>:]+", re.I)
 _CN_W = (7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2)
@@ -73,7 +83,9 @@ def _load_lexicon(path) -> list:
     if isinstance(d, list):
         items = d
     elif isinstance(d, dict):
-        items = [t for v in d.values() if isinstance(v, list) for t in v]
+        if not all(isinstance(v, list) for v in d.values()):
+            raise RedactError(f"가림 단어 목록 객체의 값은 문자열 목록이어야 한다: {p}")
+        items = [t for v in d.values() for t in v]
     else:
         raise RedactError(f"가림 단어 목록 형식 이상(목록 또는 객체): {p}")
     if not all(isinstance(t, str) for t in items):
@@ -126,7 +138,7 @@ class Redactor:
         for rx, repl in _SECRET_SUBS:
             out = rx.sub(repl, out)
         for rx in self._terms:
-            out = rx.sub(self._label, out)
+            out = rx.sub(lambda _m: self._label, out)   # 라벨을 치환 템플릿으로 해석하지 않는다
         for label, rx in self._replace:
             out = rx.sub(f"[{label}]", out)
         out = _CN_ID.sub(_cn, out)

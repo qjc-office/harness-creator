@@ -209,3 +209,15 @@ def test_lexicon_label_literal(tmp_path):
 def test_more_prefixes(raw, leak):
     out = R().redact(raw)
     assert leak not in out and "[SECRET]" in out
+
+def test_assignment_quoted_value_unterminated():
+    # 잘린 레코드처럼 닫는 따옴표가 없으면 줄 끝까지 가린다.
+    v = "correct" + " horse battery"
+    assert R().redact('x {"pass' + 'word": "' + v) == 'x {"password": "[SECRET]'
+    assert R().redact("PASS" + "WORD='" + v + "\nnext") == "PASS" + "WORD='[SECRET]\nnext"
+
+def test_assignment_key_regex_linear_time():
+    # 키 이름 패턴의 이차 역추적(긴 영숫자열 안에 KEY/TOKEN 이 반복될 때)
+    t = time.monotonic()
+    R().redact(("TOK" + "EN") * 20000)
+    assert time.monotonic() - t < 1.0
