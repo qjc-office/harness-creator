@@ -53,3 +53,79 @@ def test_manual_forms_marked():
     md = render({"candidates": [{**C, "form": "memory", "proposed_change": {**C["proposed_change"], "path": "m.md"}}]},
                 ST, 1, None, lang="ko")
     assert "- 자동 적용 대상 아님(초안과 적용 방법만 안내)" in md
+
+
+# --- fix round 1 ---
+import json
+import pytest
+
+_GHP = "gh" + "p_" + "Qw7" * 6   # 가짜 토큰은 문자열 결합으로
+
+def _broken_config(cache, kind):
+    from hc.config import save_user_config
+    if kind == "bad_json":
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "config.json").write_text("{", encoding="utf-8")
+    elif kind == "floor_str":
+        save_user_config({"redact": {"lexicon_min_terms": "abc"}})
+    elif kind == "redact_str":
+        save_user_config({"redact": "x"})
+    elif kind == "ratio_str":
+        save_user_config({"unknown_type_warn_ratio": "x"})
+
+KINDS = ["bad_json", "floor_str", "redact_str", "ratio_str"]
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_broken_config_error_path_still_writes_first_line(cache, kind):
+    _broken_config(cache, kind)
+    md = render(None, {**ST, "lexicon_terms": 3}, 0, "rc=3", lang="ko", error_kind="collect")
+    assert md.splitlines()[0] == "# harness-creator 리포트: 실패"
+    assert "수집 실패 rc=3" in md
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_broken_config_normal_path_uses_defaults(cache, kind):
+    _broken_config(cache, kind)
+    md = render({"candidates": [C]}, {**ST, "lexicon_terms": 3}, 1, None, lang="ko")
+    assert md.splitlines()[0] == "# harness-creator 리포트: 후보 1건"
+    assert "하한" not in md
+    # 비율도 기본값(0.05)으로 판정한다
+    st = {**ST, "unknown": 9}
+    assert incomplete_reasons(st) == ["모르는 레코드 비율 9.0%"]
+    assert render({"candidates": []}, st, 0, None, lang="ko").splitlines()[0] == \
+        "# harness-creator 리포트: 후보 없음 (불완전: 모르는 레코드 비율 9.0%)"
+
+@pytest.mark.parametrize("terms", [0, None])
+def test_floor_warning_when_lexicon_empty(cache, terms):
+    from hc.config import save_user_config
+    save_user_config({"redact": {"lexicon_min_terms": 10}})
+    md = render({"candidates": []}, {**ST, "lexicon": False, "lexicon_terms": terms}, 0, None, lang="ko")
+    head = md.split("\n## ")[0]
+    assert "> 추가 가림 목록 없음." in head
+    assert "> 경고: 추가 가림 목록 0건(하한 10)." in head
+
+def _leaky():
+    return {**C, "title": "t " + _GHP, "expected_effect": "e " + _GHP, "overlaps": ["o " + _GHP],
+            "evidence": {"sessions": 2, "date_range": "2026-10-01..2026-10-07", "quotes": ["q " + _GHP]},
+            "proposed_change": {"action": "create", "path": "rules/a.md", "summary": "s " + _GHP}}
+
+def test_model_strings_redacted(cache):
+    gates = {"codex_notes": [{**_leaky(), "id": "hc-2026-10-09-02"}]}
+    md = render({"candidates": [_leaky()]}, ST, 1, None, lang="ko", gates=gates)
+    assert "Qw7Qw7" not in md and "[SECRET]" in md
+    assert "rules/a.md" in md and "hc-2026-10-09-02" in md
+
+def test_redactor_build_failure_falls_back_to_builtin(cache, tmp_path):
+    from hc.config import save_user_config
+    save_user_config({"redact": {"lexicon_files": [str(tmp_path / "missing.txt")]}})
+    md = render({"candidates": [_leaky()]}, ST, 1, None, lang="ko")
+    assert md.splitlines()[0] == "# harness-creator 리포트: 후보 1건"
+    assert "Qw7Qw7" not in md and "[SECRET]" in md
+
+@pytest.mark.parametrize("v", ["4", True, -1, 2.5])
+def test_resume_skipped_non_int_ignored(v):
+    md = render({"candidates": []}, ST, 0, None, lang="ko", gates={"resume_skipped": v})
+    assert "## 걸러진 신호" not in md
+
+def test_unknown_lang_falls_back_to_en():
+    assert render({"candidates": []}, ST, 0, None, lang="fr").splitlines()[0] == "# harness-creator report: no candidates"
+    assert incomplete_reasons({**ST, "errors": 2}, lang="xx") == ["parse errors 2"]
