@@ -48,3 +48,15 @@ def test_system_prompt_prefixes_still_non_user():
     for t in ("You are a code reviewer. Find bugs.", "you are an assistant that summarizes",
               "你是一个代码审查助手", "너는 두 번째 모델로서 적대적 코드 리뷰를 한다", "이번엔 너는 리뷰어 역할이다"):
         assert is_non_user(t), t
+
+# --- fix round 2: 영어 금지형 정정은 문장 시작이면 잡고, 같은 문장에 yet·until·worry·hesitate·forget·know가 있으면 뺀다 ---
+def test_en_prohibitive_corrections():
+    for t in ("don't touch the config", "Don't change the API", "No, don't use pnpm", "Don't modify tests",
+              "don't delete the tests", "Don't use mocks", "Don't push to main", "no, do not commit",
+              "please don't", "I said don't"):
+        assert is_correction(t), t
+
+def test_en_prohibitive_everyday_excluded():
+    for t in ("Do not push yet, open a PR first", "don't merge it until CI passes", "don't worry about it",
+              "Don't hesitate to ask again", "please don't forget to run the tests", "I don't know why CI fails"):
+        assert not is_correction(t), t
