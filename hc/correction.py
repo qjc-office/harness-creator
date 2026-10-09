@@ -3,6 +3,10 @@ from __future__ import annotations
 import functools, re
 from .lang import LANGS, load_pack
 
+# 접두를 첫 40자 어디서든 찾는 언어(v1 한국어 규칙). 나머지 언어는 문장 첫머리만 본다.
+# 영어·중국어는 "you are wrong"·"你现在是在乱改" 같은 실제 정정이 같은 말로 시작하기 때문이다.
+_PREFIX_ANYWHERE = frozenset({"ko"})
+
 _STRIP = re.compile(r"[\s.,!?~…·'\"()\[\]。，！？、]+")
 
 def _norm(t: str) -> str:
@@ -10,14 +14,15 @@ def _norm(t: str) -> str:
 
 @functools.lru_cache(maxsize=None)
 def _compiled():
-    acts, prefixes, sigs, resumes = [], [], [], set()
+    acts, anywhere, start, sigs, resumes = [], [], [], [], set()
     for code in LANGS:
         p = load_pack(code)
         acts += p["correction"]
-        prefixes += [x.lower() for x in p["non_user_prefixes"]]
+        (anywhere if code in _PREFIX_ANYWHERE else start).extend(x.lower() for x in p["non_user_prefixes"])
         sigs += [x.lower() for x in p["non_user_signatures"]]
         resumes |= {_norm(x) for x in p["resume_phrases"]}
-    return re.compile("|".join(f"(?:{a})" for a in acts), re.I), tuple(prefixes), tuple(sigs), frozenset(resumes)
+    return (re.compile("|".join(f"(?:{a})" for a in acts), re.I), tuple(anywhere), tuple(start),
+            tuple(sigs), frozenset(resumes))
 
 def is_non_user(p: str) -> bool:
     if len(p) > 400:
@@ -27,10 +32,9 @@ def is_non_user(p: str) -> bool:
     low = p.lower()
     if low.lstrip().startswith("<"):
         return True
-    _, prefixes, sigs, _ = _compiled()
-    for pre in prefixes:
-        if low.startswith(pre) or pre in low[:40]:
-            return True
+    _, anywhere, start, sigs, _ = _compiled()
+    if any(pre in low[:40] for pre in anywhere) or low.lstrip().startswith(start):
+        return True
     if "respond with exactly" in low:
         return True
     if "라고만 답" in low and "라고만 답하지" not in low:
@@ -44,4 +48,4 @@ def is_correction(text: str) -> bool:
 def is_resume(text: str) -> bool:
     """사람이 쓴 지시가 아니라 이어 달라는 재개 문구뿐인가(자동 재개기가 보내는 'continue' 류)."""
     n = _norm(text)
-    return bool(n) and n in _compiled()[3]
+    return bool(n) and n in _compiled()[4]

@@ -182,12 +182,13 @@ def detect_repeated_instructions(events, cfg) -> list:
     for e in events:
         if e.kind != "user_msg" or not e.text or _PLACEHOLDER.match(e.text) or is_non_user(e.text):
             continue
-        if is_resume(e.text):
+        n = _norm_instruction(e.text)
+        if len(n) < 6:
+            continue
+        if is_resume(e.text):   # 길이 필터를 통과해 후보가 됐을 발화만 센다
             resume += 1
             continue
-        n = _norm_instruction(e.text)
-        if len(n) >= 6:
-            cands.append((e, _grams(n)))
+        cands.append((e, _grams(n)))
     clusters: list[list] = []
     for e, g in cands:
         for cl in clusters:
@@ -253,7 +254,7 @@ def _scope(events, days: int) -> dict:
     dated = [(dt, e.ts) for e in events for dt in [_parse_ts(e.ts)] if dt is not None]
     return {"days": days, "events": per, "sessions": len({(e.surface, e.session_id) for e in events}),
             "skipped": LAST_LOAD_SKIPPED,
-            "lang": detect_lang(e.text for e in events if e.kind == "user_msg"),
+            "lang": detect_lang(e.text for e in events if e.kind == "user_msg" and e.text and not is_non_user(e.text)),
             "resume_skipped": LAST_RESUME_SKIPPED,
             "earliest": min(dated)[1] if dated else "", "latest": max(dated)[1] if dated else ""}
 
