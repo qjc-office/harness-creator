@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "harness-creator",
+  "description": "harness-creator marketplace (single plugin)",
+  "owner": {"name": "QJC (Quantum Jump Club)", "url": "https://github.com/qjc-office"},
+  "plugins": [
+    {
+      "name": "harness-creator",
+      "description": "Session-based harness recommendations for Claude Code: rules, hooks and skills backed by evidence, applied only with your approval.",
+      "version": "0.1.0",
+      "source": ".",
+      "category": "productivity",
+      "homepage": "https://github.com/qjc-office/harness-creator"
+    }
+  ]
+}

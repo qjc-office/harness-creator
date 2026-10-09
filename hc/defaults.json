@@ -1,0 +1,27 @@
+{
+  "days": 7,
+  "max_files_per_run": 10000,
+  "cursor_flush_every": 200,
+  "text_max_chars": 500,
+  "unknown_type_warn_ratio": 0.05,
+  "events_retention_days": 30,
+  "max_events": 2000000,
+  "report_max_age_days": 7,
+  "estimate_mb_per_min": 200,
+  "thresholds": {
+    "correction": {"min_sessions": 2, "min_days": 2},
+    "failure_loop": {"min_repeats_in_session": 3, "min_sessions": 2},
+    "repeated_instruction": {"min_sessions": 3, "jaccard": 0.6}
+  },
+  "suppress_rejected_until_ratio": 2.0,
+  "samples_per_signal": 3,
+  "source_paths": {"claude": "~/.claude/projects", "codex": "~/.codex/sessions"},
+  "sources": {"codex": null},
+  "gates": {"stale_days": 3, "batch_window_s": 10, "global_rule_min_sessions": 10,
+            "global_rule_min_days": 3, "max_candidates": 3},
+  "redact": {"lexicon_files": [], "pattern_files": [], "lexicon_label": "NAME", "lexicon_min_terms": 0},
+  "run": {"wrap": []},
+  "judge": {"claude_bin": "", "model": "sonnet", "max_input_bytes": 400000, "timeout_s": 1800},
+  "lang": "",
+  "consent": null
+}
