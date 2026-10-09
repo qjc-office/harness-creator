@@ -74,7 +74,8 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
     red = redactor or from_config(cfg)    # 실패하면 여기서 RedactError, 아무것도 쓰지 않는다
     now = now or _now()
     if include_codex is None:
-        include_codex = bool((cfg.get("sources") or {}).get("codex"))
+        include_codex = (cfg.get("sources") or {}).get("codex")
+    include_codex = include_codex is True    # 동의는 정확히 true일 때만("false"·"0"·1은 미동의)
     paths = dict(sources or cfg["source_paths"])
     if not include_codex:
         paths.pop("codex", None)
@@ -101,7 +102,7 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
     stats.lexicon = getattr(red, "has_lexicon", True)
     stats.lexicon_terms = getattr(red, "lexicon_terms", None)
     ev_dir = root / "events"
-    ev_dir.mkdir(exist_ok=True)
+    ev_dir.mkdir(mode=0o700, exist_ok=True)
     os.chmod(ev_dir, 0o700)
     out_path = ev_dir / (time.strftime("%Y-%m-%d", time.localtime(now)) + ".jsonl")
     fd = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -144,7 +145,7 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
                 stats.unknown += res.unknown
                 stats.malformed += res.malformed
                 cursor[str(p)] = {"size": st.st_size, "mtime": st.st_mtime, "offset": res.end,
-                                  "session_id": sid, "cwd": wd}
+                                  "session_id": sid, "cwd": red.redact(wd) if wd else wd}   # 커서에도 가린 값만
                 processed += 1
                 if processed % flush_every == 0:
                     save_cursor()

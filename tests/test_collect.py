@@ -409,3 +409,51 @@ def test_slot_failure_writes_nothing(cache, src, tmp_path):
     with pytest.raises(RedactError):
         collect(7, include_codex=True, sources=src)
     assert not (cache / "events").exists()
+
+# --- fix round 1: 동의는 정확히 true일 때만, 커서에도 가린 cwd만 ---
+@pytest.mark.parametrize("val", ["false", "0", 1, "true"])
+def test_codex_consent_requires_exact_true(cache, src, tmp_path, val):
+    from hc.config import save_user_config
+    save_user_config({"sources": {"codex": val}})
+    _codex(tmp_path)
+    st = collect(7, sources=src, redactor=FakeRedactor())
+    assert st.events["codex"] == 0 and st.codex_included is False
+    assert json.loads((cache / "collect-stats.json").read_text())["codex_included"] is False
+
+@pytest.mark.parametrize("val", ["false", 1])
+def test_codex_include_arg_requires_exact_true(cache, src, tmp_path, val):
+    _codex(tmp_path)
+    st = collect(7, include_codex=val, sources=src, redactor=FakeRedactor())
+    assert st.events["codex"] == 0 and st.codex_included is False
+
+def test_codex_cursor_stores_redacted_cwd(cache, src, tmp_path):
+    from hc.redact import Redactor
+    lexp = tmp_path / "lex.json"
+    lexp.write_text(json.dumps({"orgs": ["Acme"]}), encoding="utf-8")
+    red = Redactor(lexicon_files=[str(lexp)], lexicon_label="L3")
+    d = tmp_path / "cx" / "2026" / "10" / "01"; d.mkdir(parents=True)
+    p = d / "rollout-z.jsonl"
+    p.write_text(json.dumps({"type": "session_meta", "timestamp": "t",
+                             "payload": {"session_id": "cz", "cwd": "/Users/u/Acme-ax"}}) + "\n")
+    collect(7, include_codex=True, sources=src, redactor=red)
+    raw = (cache / "cursor.json").read_text()
+    assert "Acme" not in raw and "/Users/u" not in raw
+    assert json.loads(raw)[str(p)]["cwd"] == "~/[L3]-ax"
+    with p.open("a") as fh:
+        fh.write(json.dumps({"type": "response_item", "timestamp": "t", "payload": {"type": "message", "role": "user",
+                             "content": [{"type": "input_text", "text": "hi"}]}}) + "\n")
+    collect(7, include_codex=True, sources=src, redactor=red)
+    ev = _events(cache)
+    assert ev and ev[-1]["cwd"] == "~/[L3]-ax" and ev[-1]["session_id"] == "cz"
+
+def test_events_dir_created_private(cache, src, tmp_path, monkeypatch):
+    import hc.collect as c
+    _cc(tmp_path / "cc", "s1.jsonl", [_u("a")])
+    c.data_dir()                                   # 데이터 폴더는 먼저 만든다
+    monkeypatch.setattr(c.os, "chmod", lambda *a, **k: None)   # 사후 chmod 없이도 처음부터 0700인지
+    old = os.umask(0o022)
+    try:
+        collect(7, include_codex=True, sources=src, redactor=FakeRedactor())
+    finally:
+        os.umask(old)
+    assert (cache / "events").stat().st_mode & 0o777 == 0o700
