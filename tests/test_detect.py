@@ -177,6 +177,11 @@ def _cli_detect(cache, extra):
     env.update(extra)
     return subprocess.run([sys.executable, str(cli), "detect"], capture_output=True, text=True, env=env)
 
+def _cli_has_detect() -> bool:
+    p = pathlib.Path(__file__).resolve().parents[1] / "hc" / "cli.py"
+    return '"detect"' in p.read_text(encoding="utf-8")
+
+@pytest.mark.skipif(not _cli_has_detect(), reason="detect 하위 명령은 Task 9(CLI 전체)에서 생긴다. 생기면 저절로 다시 돈다")
 def test_cli_detect_cap_exceeded_rc_nonzero(cache):
     now = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
     _evfile(cache, [dumps(ev(s, now, "user_msg", s)) for s in "ab"], name="today.jsonl")

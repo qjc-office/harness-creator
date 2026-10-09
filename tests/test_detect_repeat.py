@@ -153,6 +153,7 @@ def test_run_detect_writes_scope(cache):
     os.utime(f, (now - 3600, now - 3600))
     scope = json.loads(run_detect(7, now=now).read_text())["scope"]
     assert scope == {"days": 7, "events": {"claude": 3, "codex": 1}, "sessions": 3, "skipped": 1,
+                     "lang": "en", "resume_skipped": 0,
                      "earliest": "2026-10-03T00:00:00Z", "latest": "2026-10-08T01:00:00+00:00"}
 
 def test_run_detect_scope_empty(cache):
