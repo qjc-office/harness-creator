@@ -89,7 +89,7 @@ def test_home_paths(raw, want):
 
 def test_lexicon_slot(tmp_path):
     lex = tmp_path / "lex.json"
-    lex.write_text(json.dumps({"orgs": ["Acme", "가나다" + "상사"], "people": ["홍길순"], "x": "ignored"}), encoding="utf-8")
+    lex.write_text(json.dumps({"orgs": ["Acme", "가나다" + "상사"], "people": ["홍길순"]}), encoding="utf-8")
     r = R(lexicon_files=[str(lex)])
     assert r.has_lexicon and r.lexicon_terms == 3
     assert r.redact("acme-ax ACME Acme") == "[NAME]-ax [NAME] [NAME]"
@@ -124,7 +124,8 @@ def test_pattern_slot_fail_closed(tmp_path, content):
     with pytest.raises(RedactError):
         R(pattern_files=[str(pf)])
 
-@pytest.mark.parametrize("content", [None, "{broken", '"str"', '[1, 2]'])
+@pytest.mark.parametrize("content", [None, "{broken", '"str"', '[1, 2]',
+                                     '{"orgs": ["Acme"], "x": "ignored"}'])
 def test_lexicon_slot_fail_closed(tmp_path, content):
     lf = tmp_path / "l.json"
     if content is not None:
@@ -151,3 +152,60 @@ def test_assignment_json_quoted_key():
 def test_lexicon_mixed_script_case_insensitive(tmp_path):
     lex = tmp_path / "m.json"; lex.write_text(json.dumps(["Acme" + "상사"]), encoding="utf-8")
     assert R(lexicon_files=[str(lex)]).redact("ACME" + "상사 acme" + "상사") == "[NAME] [NAME]"
+
+
+# --- fix round 1 ---
+import time, base64
+
+def test_assignment_quoted_value_with_spaces():
+    pw = "correct" + " horse battery staple"
+    out = R().redact("export PASS" + "WORD='" + pw + "'")
+    assert out == "export PASSWORD='[SECRET]'"
+    v = "my sec" + "ret value 1234 56"
+    out = R().redact('{"pass' + 'word": "' + v + '"}')
+    assert out == '{"password": "[SECRET]"}'
+
+def test_assignment_escaped_json():
+    v = "my sec" + "ret value 1234 56"
+    raw = '{\\"pass' + 'word\\": \\"' + v + '\\"}'
+    out = R().redact(raw)
+    assert v not in out and "sec" + "ret value" not in out
+    assert out == '{\\"password\\": \\"[SECRET]\\"}'
+
+def test_assignment_unquoted_keeps_structure():
+    assert R().redact("{TOK" + "EN=" + _HEX + "}") == "{TOKEN=[SECRET]}"
+    assert R().redact("a?api" + "_key=" + _HEX + "&next=1") == "a?api_key=[SECRET]&next=1"
+    assert R().redact("f(SEC" + "RET=" + _HEX + ", y)") == "f(SECRET=[SECRET], y)"
+    assert R().redact("TOK" + "EN=" + _HEX + ";ls") == "TOKEN=[SECRET];ls"
+
+def test_assignment_short_quoted_unchanged():
+    assert R().redact('{"key": "Enter"}') == '{"key": "Enter"}'
+
+@pytest.mark.parametrize("sep", ["", " "])
+def test_kr_rrn_without_hyphen(sep):
+    rrn = "900101" + sep + "1234567"
+    assert R().redact("주민 " + rrn + " 확인") == "주민 [ID] 확인"
+
+def test_kr_rrn_inside_longer_digits_unchanged():
+    raw = "n 1" + "9001011234567" + "9"
+    assert "[ID]" not in R().redact(raw)
+
+@pytest.mark.parametrize("raw", ["a" * 40000, base64.urlsafe_b64encode(bytes(range(256)) * 240).decode()[:80000]],
+                         ids=["a40k", "b64url80k"])
+def test_email_regex_linear_time(raw):
+    t = time.monotonic()
+    R().redact(raw)
+    assert time.monotonic() - t < 1.0
+
+def test_lexicon_label_literal(tmp_path):
+    lex = tmp_path / "l.json"; lex.write_text(json.dumps(["Zeta"]))
+    assert R(lexicon_files=[str(lex)], lexicon_label="A\\1").redact("zeta") == "[A\\1]"
+
+@pytest.mark.parametrize("raw,leak", [
+    ("aws " + "AS" + "IA" + "ABCDEFGHIJKLMNOP", "ABCDEFGHIJKLMNOP"),
+    ("slack " + "xa" + "pp-" + "1-A0123-456789-abcdef", "456789-abcdef"),
+    ("slack " + "xo" + "xe-" + "1-abcdefghij0123", "abcdefghij0123"),
+])
+def test_more_prefixes(raw, leak):
+    out = R().redact(raw)
+    assert leak not in out and "[SECRET]" in out
