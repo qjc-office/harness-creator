@@ -26,3 +26,21 @@ def write_private(path, text: str) -> None:
         except FileNotFoundError:
             pass
         raise
+
+def append_line(path, data: bytes) -> None:
+    """한 레코드를 한 번의 write로 덧붙인다(O_APPEND, 0600). 앞 줄이 중단돼 개행 없이 끝났으면
+    같은 write 안에서 개행을 먼저 넣어 새 레코드가 잘린 줄에 붙지 않게 한다."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        size = os.fstat(fd).st_size
+        if size:
+            with open(path, "rb") as fh:
+                fh.seek(size - 1)
+                if fh.read(1) != b"\n":
+                    data = b"\n" + data
+        n = os.write(fd, data)
+        if n != len(data):
+            raise OSError(f"기록이 일부만 쓰였다({n}/{len(data)}바이트)")
+    finally:
+        os.close(fd)
