@@ -173,10 +173,12 @@ def test_assignment_escaped_json():
     assert out == '{\\"password\\": \\"[SECRET]\\"}'
 
 def test_assignment_unquoted_keeps_structure():
-    assert R().redact("{TOK" + "EN=" + _HEX + "}") == "{TOKEN=[SECRET]}"
+    # Fix round 2 판정: 따옴표 없는 값은 공백·따옴표 전까지 넉넉히 가린다(구조 문자 정지 철회).
+    # 유일한 예외는 URL 쿼리의 다음 파라미터(& 뒤 \w+=).
+    assert R().redact("{TOK" + "EN=" + _HEX + "}") == "{TOKEN=[SECRET]"
     assert R().redact("a?api" + "_key=" + _HEX + "&next=1") == "a?api_key=[SECRET]&next=1"
-    assert R().redact("f(SEC" + "RET=" + _HEX + ", y)") == "f(SECRET=[SECRET], y)"
-    assert R().redact("TOK" + "EN=" + _HEX + ";ls") == "TOKEN=[SECRET];ls"
+    assert R().redact("f(SEC" + "RET=" + _HEX + ", y)") == "f(SECRET=[SECRET] y)"
+    assert R().redact("TOK" + "EN=" + _HEX + ";ls") == "TOKEN=[SECRET]"
 
 def test_assignment_short_quoted_unchanged():
     assert R().redact('{"key": "Enter"}') == '{"key": "Enter"}'
@@ -220,4 +222,53 @@ def test_assignment_key_regex_linear_time():
     # 키 이름 패턴의 이차 역추적(긴 영숫자열 안에 KEY/TOKEN 이 반복될 때)
     t = time.monotonic()
     R().redact(("TOK" + "EN") * 20000)
+    assert time.monotonic() - t < 1.0
+
+# --- fix round 2 ---
+_PW = "pass" + "word"
+_Q = "QZ" + "QZ"   # 누출 표지
+
+@pytest.mark.parametrize("raw,want", [
+    (_PW + "=ab&" + _Q + "defgh1234", _PW + "=[SECRET]"),
+    (_PW + "=ab;" + _Q + "defgh1234", _PW + "=[SECRET]"),
+    (_PW + "=abc," + _Q + "defgh1234", _PW + "=[SECRET]"),
+    (_PW + "=ab)" + _Q + "defgh1234", _PW + "=[SECRET]"),
+    (_PW + "=ab}" + _Q + "defgh1234", _PW + "=[SECRET]"),
+    ("TOK" + "EN=;" + _Q + "abcdefgh12", "TOKEN=[SECRET]"),
+    (_PW + "=abcdefgh&" + _Q + "xyz1234", _PW + "=[SECRET]"),
+    ("u?tok" + "en=" + _Q + "abcdefgh&page=2", "u?token=[SECRET]&page=2"),
+], ids=["amp", "semi", "comma", "paren", "brace", "lead-semi", "amp-tail", "query-next"])
+def test_assignment_unquoted_structure_chars_no_leak(raw, want):
+    out = R().redact(raw)
+    assert _Q not in out and out == want
+
+@pytest.mark.parametrize("raw,want", [
+    (_PW + ' = "it' + "'s " + _Q + ' long phrase"', _PW + ' = "[SECRET]"'),
+    (_PW + " = 'say \"" + _Q + "\" long phrase'", _PW + " = '[SECRET]'"),
+    ('{"' + _PW + '": "ab\\"' + _Q + 'cdefgh"}', '{"' + _PW + '": "[SECRET]"}'),
+    ('{\\"' + _PW + '\\": \\"it' + "'s " + _Q + ' phrase\\"}', '{\\"' + _PW + '\\": \\"[SECRET]\\"}'),
+], ids=["dq-with-apos", "sq-with-dq", "json-inner-escaped-quote", "escaped-json-apos"])
+def test_assignment_mixed_quotes_no_leak(raw, want):
+    out = R().redact(raw)
+    assert _Q not in out and out == want
+
+@pytest.mark.parametrize("raw,want", [
+    # 셸 따옴표 이어 붙이기: 따옴표 밖 대입이면 따옴표 조각도 같은 값이다
+    ("export " + _PW.upper() + '=ab"' + _Q + ' cdef"', "export PASSWORD=[SECRET]"),
+    ("export " + _PW.upper() + "=abcdefgh'" + _Q + " ij' next", "export PASSWORD=[SECRET] next"),
+    # 따옴표 안 대입이면 같은 종류 따옴표에서 멈춘다
+    ('run "' + _PW.upper() + "=" + _Q + 'abcdefgh" now', 'run "PASSWORD=[SECRET]" now'),
+    ('{\\"cmd\\": \\"' + _PW.upper() + "=" + _Q + 'abcdefgh\\"}', '{\\"cmd\\": \\"PASSWORD=[SECRET]\\"}'),
+    # 다른 대입 기호
+    (_PW + ' => "' + _Q + ' long value"', _PW + ' => "[SECRET]"'),
+    (_PW + " := " + _Q + "abcdefgh", _PW + " := [SECRET]"),
+], ids=["shell-concat-short", "shell-concat-long", "inside-dq", "inside-escaped-json", "ruby-arrow", "walrus"])
+def test_assignment_quote_context(raw, want):
+    out = R().redact(raw)
+    assert _Q not in out and out == want
+
+def test_assignment_long_line_linear_time():
+    t = time.monotonic()
+    R().redact((_PW + '="a' + "b" * 10) * 5000)
+    R().redact((_PW + "=ab&") * 20000)
     assert time.monotonic() - t < 1.0
