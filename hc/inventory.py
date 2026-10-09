@@ -5,13 +5,23 @@
 
 심링크: ~/.claude 하위 폴더가 dotfiles 저장소를 가리키는 경우가 흔해서 따라간다. 패턴이 고정 깊이
 (rules/*.md, skills/*/SKILL.md 등)라 재귀 탐색이 없으므로 순환 링크가 있어도 끝난다. 끊긴 링크·
-자기 순환 링크는 is_file()이 False라 조용히 빠진다. 파일은 앞 16KB의 frontmatter만 읽는다."""
+자기 순환 링크는 is_file()이 False라 조용히 빠진다. 파일은 앞 16KB의 frontmatter만 읽는다.
+(16KB 경계가 frontmatter 안에 걸리면 닫는 `---`가 없어 아무 값도 싣지 않으므로 경계에서 값이 잘려 나가지 않는다.)
+
+자르기는 항상 가린 뒤에 한다. 자른 뒤 가리면 경계에 걸친 시크릿은 정규식에 안 걸려 앞부분이 샌다."""
 from __future__ import annotations
-import json, pathlib
+import json, pathlib, re, shlex
 from .frontmatter import front_file
 
 SELF = "harness-creator"
 _MEMORY_MAX = 200
+_TEXT_MAX = 300
+_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_RUNNER = re.compile(r"^(?:env|bash|sh|zsh|dash|node|python[0-9.]*)$")
+
+def _clip(red, text: str) -> str:
+    """가린 다음 자른다(순서 바꾸지 말 것)."""
+    return red.redact(text)[:_TEXT_MAX]
 
 class _Count:
     def __init__(self):
@@ -28,9 +38,27 @@ def _entries(paths, base: pathlib.Path, red, cnt, prefix: str = "") -> list:
             cnt.unreadable += 1
             continue
         rel = p.relative_to(base).as_posix()
-        out.append({"path": red.redact(prefix + rel), "name": red.redact(fm.get("name", p.parent.name if p.name == "SKILL.md" else p.stem)),
-                    "description": red.redact(fm.get("description", "")[:300])})
+        out.append({"path": red.redact(prefix + rel), "name": _clip(red, fm.get("name", p.parent.name if p.name == "SKILL.md" else p.stem)),
+                    "description": _clip(red, fm.get("description", ""))})
     return out
+
+def _script_name(cmd: str) -> str:
+    """훅 명령에서 실제 스크립트 파일명. env·VAR=값·옵션·인터프리터(bash/sh/zsh/node/python*)·`uv run`을 건너뛴다.
+    셸 문법으로 못 쪼개면(따옴표 미닫힘 등) 첫 공백 토큰을 쓴다."""
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        return pathlib.PurePosixPath(cmd.split()[0]).name
+    i = 0
+    while i < len(toks):
+        t, base = toks[i], pathlib.PurePosixPath(toks[i]).name
+        if base == "uv" and i + 1 < len(toks) and toks[i + 1] == "run":
+            i += 2
+        elif _ASSIGN.match(t) or t.startswith("-") or _RUNNER.match(base):
+            i += 1
+        else:
+            return base
+    return pathlib.PurePosixPath(toks[0]).name if toks else ""
 
 def _hook_commands(settings: pathlib.Path) -> list:
     try:
@@ -43,8 +71,8 @@ def _hook_commands(settings: pathlib.Path) -> list:
             for h in (g.get("hooks") or []) if isinstance(g, dict) else []:
                 cmd = h.get("command") if isinstance(h, dict) else None
                 if isinstance(cmd, str) and cmd.strip():
-                    names.add(pathlib.PurePosixPath(cmd.split()[0]).name)
-    return sorted(names)
+                    names.add(_script_name(cmd))
+    return sorted(n for n in names if n)
 
 def _plugins(plugins_file, red, cnt) -> list:
     if not plugins_file or not pathlib.Path(plugins_file).exists():
@@ -76,7 +104,7 @@ def build(claude_home, plugins_file=None, *, redactor) -> dict:
     mem = []
     for idx in sorted(home.glob("projects/*/memory/MEMORY.md")):
         try:
-            mem += [red.redact(l) for l in idx.read_text(encoding="utf-8", errors="replace").splitlines() if l.startswith("- ")]
+            mem += [_clip(red, l) for l in idx.read_text(encoding="utf-8", errors="replace").splitlines() if l.startswith("- ")]
         except OSError:
             cnt.unreadable += 1
     hooks_dir = home / "hooks"
