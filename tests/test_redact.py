@@ -142,3 +142,12 @@ def test_from_config_tilde(tmp_path, monkeypatch):
 def test_clean_text_unchanged():
     assert R().redact("pytest가 실패해요") == "pytest가 실패해요"
     assert R().redact("") == ""
+
+def test_assignment_json_quoted_key():
+    # JSON·dict 형태는 키 이름 뒤에 따옴표가 붙는다. 세션 기록의 도구 입력이 주로 이 형태다.
+    assert R().redact('{"CRON' + '_SECRET": "' + _HEX + '"}') == '{"CRON_SECRET": "[SECRET]"}'
+    assert R().redact("{'pass" + "word': '" + _HEX + "'}") == "{'password': '[SECRET]'}"
+
+def test_lexicon_mixed_script_case_insensitive(tmp_path):
+    lex = tmp_path / "m.json"; lex.write_text(json.dumps(["Acme" + "상사"]), encoding="utf-8")
+    assert R(lexicon_files=[str(lex)]).redact("ACME" + "상사 acme" + "상사") == "[NAME] [NAME]"
