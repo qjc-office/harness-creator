@@ -85,11 +85,41 @@ def test_plugins_listed_and_self_skipped(tmp_path):
 def test_inventory_text_redacted(tmp_path):
     h = _home(tmp_path)
     lex = tmp_path / "lex.json"; lex.write_text(json.dumps(["Acme"]))
-    (h / "rules" / "acme-rule.md").write_text("---\nname: r\ndescription: Acme 전용 " + "gh" + "p_" + "Ab1" * 8 + "\n---\n")
+    home_dir = "/Users/" + "alice"
+    (h / "rules" / "acme-rule.md").write_text("---\nname: r\ndescription: Acme 전용" + "gh" + "p_" + "Ab1" * 8
+                                              + " 경로 " + home_dir + "/proj/x.md\n---\n")
+    (h / "projects" / "p1" / "memory" / "MEMORY.md").write_text("- 메모 " + home_dir + "/notes.md\n")
     inv = build(h, redactor=Redactor(lexicon_files=[str(lex)]))
     raw = json.dumps(inv, ensure_ascii=False)
     assert "acme" not in raw.lower() and "Ab1Ab1" not in raw
-    assert str(tmp_path) not in raw
+    assert "alice" not in raw and "~/proj/x.md" in raw and inv["memory"] == ["- 메모 ~/notes.md"]
+
+_TOKEN = "gh" + "p_" + "Q7x9Lm2Kp4R" * 4
+
+def test_redact_before_truncating_description(tmp_path):
+    h = _home(tmp_path)
+    (h / "rules" / "edge.md").write_text("---\nname: e\ndescription: " + "a" * 290 + " " + _TOKEN + "\n---\n")
+    inv = build(h, redactor=Redactor())
+    d = [e for e in inv["rules"] if e["name"] == "e"][0]["description"]
+    assert len(d) <= 300 and "gh" + "p_" not in d and "Q7x9" not in d
+
+def test_memory_line_redacted_then_truncated(tmp_path):
+    h = _home(tmp_path)
+    (h / "projects" / "p1" / "memory" / "MEMORY.md").write_text("- " + "b" * 290 + " " + _TOKEN + "\n- " + "c" * 500 + "\n")
+    inv = build(h, redactor=Redactor())
+    raw = json.dumps(inv["memory"])
+    assert "gh" + "p_" not in raw and "Q7x9" not in raw
+    assert [len(l) <= 300 for l in inv["memory"]] == [True, True]
+
+def test_hook_commands_skip_interpreters_and_quotes(tmp_path):
+    h = _home(tmp_path)
+    cmds = ["bash ~/.claude/hooks/a-guard.sh", "\"$HOME/.claude/hooks/b check.sh\" --x",
+            "FOO=bar env -i python3 -u ~/.claude/hooks/c.py", "uv run ~/.claude/hooks/d.py",
+            "/usr/bin/env node ~/.claude/hooks/e.js", "echo 'unterminated"]
+    (h / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
+        {"type": "command", "command": c} for c in cmds]}]}}))
+    inv = build(h, redactor=_Same())
+    assert inv["hook_commands"] == sorted(["a-guard.sh", "b check.sh", "c.py", "d.py", "e.js", "echo"])
 
 def test_fit_input_drops_lowest_signals_first():
     sigs = [{"id": f"s{i}", "count": i, "sessions": ["a"] * i, "samples": ["x" * 200]} for i in range(1, 6)]
