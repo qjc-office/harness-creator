@@ -43,6 +43,41 @@ def test_g5_keeps_top3_by_count_times_sessions():
     assert sorted(f["candidate_id"] for f in filt) == ["hc-2026-10-09-00", "hc-2026-10-09-01"]
     assert all(f["gate"] == "G5" for f in filt)
 
+def test_g4_modify_ignores_model_paths_claim(tmp_path):
+    """기존 규칙 수정은 대상 파일 frontmatter로 판정한다. 모델이 paths를 말해도 대상이 상시 로드면 G4."""
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "global.md").write_text("---\nname: y\n---\n")
+    keep, _, filt = gate_candidates([C(1, paths=("src/**",), action="modify", path="rules/global.md")],
+                                    [S("s1")], CFG, tmp_path)
+    assert keep == [] and filt == [{"gate": "G4", "candidate_id": "hc-2026-10-09-01"}]
+
+def test_g4_modify_defaults_to_claude_home(tmp_path, monkeypatch):
+    (tmp_path / "rules").mkdir()
+    (tmp_path / "rules" / "scoped.md").write_text("---\npaths: \"a/**\"\n---\n")
+    monkeypatch.setenv("HC_CLAUDE_HOME", str(tmp_path))
+    keep, _, _ = gate_candidates([C(1, paths=(), action="modify", path="rules/scoped.md")], [S("s1")], CFG)
+    assert len(keep) == 1
+
+def test_g4_modify_outside_home_is_not_scoped(tmp_path):
+    (tmp_path / "x.md").write_text("---\npaths: \"a/**\"\n---\n")
+    home = tmp_path / "home2"
+    home.mkdir()
+    keep, _, _ = gate_candidates([C(1, paths=(), action="modify", path="../x.md")], [S("s1")], CFG, home)
+    assert keep == []
+
+def test_inputs_not_mutated():
+    c = C(1, paths=())
+    s = S("s1", n=10, days=("2026-10-05", "2026-10-06", "2026-10-07"))
+    snap_c, snap_s = repr(c), repr(s)
+    keep, _, _ = gate_candidates([c], [s], CFG)
+    assert keep[0]["global_rule"] is True and "global_rule" not in c
+    assert repr(c) == snap_c and repr(s) == snap_s
+
+def test_malformed_inputs_do_not_raise():
+    sigs = [None, {"id": 3}, {"id": "s1", "surfaces": "codex", "groups": "x", "days": None, "count": "9"}]
+    keep, codex, filt = gate_candidates([None, "x", C(1, form="skill", path="skills/x/SKILL.md")], sigs, CFG)
+    assert len(keep) == 1 and codex == [] and filt == []
+
 def test_non_rule_forms_skip_g4():
     keep, _, _ = gate_candidates([C(1, form="skill", paths=(), path="skills/x/SKILL.md")], [S("s1")], CFG)
     assert len(keep) == 1
