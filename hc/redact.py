@@ -16,22 +16,113 @@ _SECRET = re.compile(
     r"|AIza[0-9A-Za-z_\-]{30,}|(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{10,}"
     r")"
 )
-# 대입문. 키 이름 뒤 따옴표(JSON·dict)와 역슬래시 이스케이프(\"key\": \"v\")를 허용한다.
-# 따옴표로 열린 값은 짝 따옴표(잘린 레코드면 줄 끝) 전까지 공백을 포함해 가리고(패스프레이즈),
-# 따옴표 없는 값은 공백과 구조 문자 } ) , ; & 앞에서 멈춘다(JSON·쿼리 구조 보존).
+# 대입문 머리: 키 이름 + 대입 기호(= : => :=). 키 뒤 따옴표(JSON·dict)와 역슬래시 이스케이프
+# (\"key\": \"v\")를 허용한다. 둘째 갈래는 공백으로 값을 받는 CLI 플래그(--password <값>)다.
 # 키 이름 앞뒤 길이 상한 64는 긴 영숫자열에서의 이차 역추적을 막는다.
-_ASSIGN = re.compile(
-    r"(?<![A-Za-z0-9_])([A-Z0-9_]{0,64}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]{0,64})(?![A-Za-z0-9_])"
-    r"(\\?[\"']?\s*[=:]\s*)"
-    r"(?:(\\?[\"'])(?=(?:[^\"'\n\\]|\\(?![\"'])){8,}(?:\\?[\"']|\n|\Z))(?:[^\"'\n\\]|\\(?![\"']))+"
-    r"|[^\s\"'}),;&]{8,})",
+_ASSIGN_HEAD = re.compile(
+    r"(?<![A-Za-z0-9_])[A-Z0-9_]{0,64}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]{0,64}(?![A-Za-z0-9_])"
+    r"\\?[\"']?\s*(?:=>|:=|[=:])\s*"
+    r"|(?<![A-Za-z0-9_-])--[A-Z0-9_-]{0,64}(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_-]{0,64}(?![A-Za-z0-9_-])"
+    r"[ \t]+(?=[^\s-])",
     re.I,
 )
+_QUERY_NEXT = re.compile(r"&\w+=")
+_MIN_VALUE = 8
+_QUOTES = ('"', "'")
+_QUOTE_PAIRS = {'"': '"', "'": "'", "`": "`", "\u201c": "\u201d", "\u2018": "\u2019"}
+_QUOTE_SPAN = 4096   # 닫는 따옴표를 찾는 최대 거리(여러 줄 값 허용, 시간 상한)
+
+def _quote_at(text: str, i: int):
+    """i 위치의 여는 따옴표. (여는 표기, 닫는 표기, 역슬래시 이스케이프 여부, 길이) 또는 None.
+    삼중 따옴표·백틱·굽은 따옴표를 포함한다. 이스케이프는 \\" \\' 만 본다."""
+    for tq in ('"""', "'''"):
+        if text.startswith(tq, i):
+            return tq, tq, False, 3
+    c = text[i:i + 1]
+    if c in _QUOTE_PAIRS:
+        return c, _QUOTE_PAIRS[c], False, 1
+    if c == "\\" and text[i + 1:i + 2] in _QUOTES:
+        return text[i + 1], text[i + 1], True, 2
+    return None
+
+def _quoted_end(text: str, i: int, close: str, escaped: bool):
+    """여는 따옴표 바로 뒤 i부터 같은 종류의 닫는 따옴표를 찾는다. (본문 끝, 닫는 따옴표 끝).
+    다른 종류 따옴표와 역슬래시로 이스케이프된 따옴표는 본문이다. _QUOTE_SPAN 안에서
+    못 찾으면(잘린 레코드) 줄 끝·텍스트 끝까지를 본문으로 본다."""
+    stop = min(len(text), i + _QUOTE_SPAN)
+    j = i
+    while True:
+        k = text.find(close, j, stop)
+        if k < 0:
+            break
+        bs = 0
+        while k - bs - 1 >= i and text[k - bs - 1] == "\\":
+            bs += 1
+        if escaped and bs % 2 == 1:
+            return k - 1, k + len(close)
+        if not escaped and bs % 2 == 0:
+            return k, k + len(close)
+        j = k + 1
+    nl = text.find("\n", i)
+    end = nl if nl >= 0 else len(text)
+    return end, end
+
+def _bare_end(text: str, i: int, enclosing) -> int:
+    """따옴표 없는 값의 끝. 공백에서 멈추고, & 뒤가 다음 쿼리 파라미터(\\w+=)일 때만 &에서 멈춘다.
+    대입문을 감싼 따옴표와 같은 따옴표에서 멈추고, 그 밖의 따옴표 조각은 셸처럼 값에 이어 붙인다."""
+    n, j = len(text), i
+    while j < n:
+        c = text[j]
+        if c.isspace() or (c == "&" and _QUERY_NEXT.match(text, j)):
+            break
+        qa = _quote_at(text, j)
+        if qa is None:
+            j += 1
+            continue
+        q, close, esc, ln = qa
+        if enclosing == (q, esc):
+            break
+        j = max(j + 1, _quoted_end(text, j + ln, close, esc)[1])
+    return j
+
+def _enclosing(text: str, start: int):
+    """대입문 바로 앞 따옴표(대입문이 문자열 안에 있는지)."""
+    if start >= 2 and text[start - 2] == "\\" and text[start - 1] in _QUOTES:
+        return text[start - 1], True
+    if start >= 1 and text[start - 1] in _QUOTES:
+        return text[start - 1], False
+    return None
+
+def _redact_assign(text: str) -> str:
+    """대입문 값 가림. 따옴표로 열린 값은 같은 종류 짝 따옴표 전까지 공백 포함(패스프레이즈),
+    따옴표 없는 값은 공백 전까지 넉넉히 가린다(과잉 가림이 누출보다 낫다). 8자 미만 값은 둔다."""
+    out, pos = [], 0
+    m = _ASSIGN_HEAD.search(text)
+    while m:
+        v = m.end()
+        qa = _quote_at(text, v)
+        if qa:
+            _, close, esc, ln = qa
+            start, end = v + ln, _quoted_end(text, v + ln, close, esc)[0]
+        else:
+            start, end = v, _bare_end(text, v, _enclosing(text, m.start()))
+        if end - start >= _MIN_VALUE:
+            out += [text[pos:start], "[SECRET]"]
+            pos = end
+            m = _ASSIGN_HEAD.search(text, end)
+        else:
+            m = _ASSIGN_HEAD.search(text, m.end())
+    out.append(text[pos:])
+    return "".join(out)
+
+_PEM = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S)
+_BEARER = re.compile(r"(?<![A-Za-z0-9_])Bearer\s+[A-Za-z0-9._\-~+/=]{16,}", re.I)
+# 순서가 의미를 가진다: PEM 블록 통째 → 접두 토큰 → 대입문(이름 유지) → Bearer
 _SECRET_SUBS = (
-    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S), "[SECRET]"),
-    (_SECRET, "[SECRET]"),
-    (_ASSIGN, lambda m: m.group(1) + m.group(2) + (m.group(3) or "") + "[SECRET]"),
-    (re.compile(r"(?<![A-Za-z0-9_])Bearer\s+[A-Za-z0-9._\-~+/=]{16,}", re.I), "Bearer [SECRET]"),
+    lambda s: _PEM.sub("[SECRET]", s),
+    lambda s: _SECRET.sub("[SECRET]", s),
+    _redact_assign,
+    lambda s: _BEARER.sub("Bearer [SECRET]", s),
 )
 _CN_ID = re.compile(r"(?<![0-9A-Za-z])[1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[0-9Xx](?![0-9A-Za-z])")
 _KR_RRN = re.compile(r"(?<!\d)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])[-\s]?[1-8]\d{6}(?!\d)")
@@ -135,8 +226,8 @@ class Redactor:
             if rx.search(text):
                 return f"[{label}]"
         out = text
-        for rx, repl in _SECRET_SUBS:
-            out = rx.sub(repl, out)
+        for sub in _SECRET_SUBS:
+            out = sub(out)
         for rx in self._terms:
             out = rx.sub(lambda _m: self._label, out)   # 라벨을 치환 템플릿으로 해석하지 않는다
         for label, rx in self._replace:
