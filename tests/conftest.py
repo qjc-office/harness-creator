@@ -21,3 +21,14 @@ def _isolate_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("HC_CLAUDE_HOME", raising=False)
     monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
+
+@pytest.fixture(autouse=True)
+def _restore_tz():
+    import os, time
+    old = os.environ.get("TZ")
+    yield
+    if old is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = old
+    time.tzset()
