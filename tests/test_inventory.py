@@ -113,13 +113,29 @@ def test_memory_line_redacted_then_truncated(tmp_path):
 
 def test_hook_commands_skip_interpreters_and_quotes(tmp_path):
     h = _home(tmp_path)
-    cmds = ["bash ~/.claude/hooks/a-guard.sh", "\"$HOME/.claude/hooks/b check.sh\" --x",
+    cmds = ["bash ~/.claude/hooks/a-guard.sh", "\"$HOME/.claude/hooks/b-check.sh\" --x",
             "FOO=bar env -i python3 -u ~/.claude/hooks/c.py", "uv run ~/.claude/hooks/d.py",
-            "/usr/bin/env node ~/.claude/hooks/e.js", "echo 'unterminated"]
+            "/usr/bin/env node ~/.claude/hooks/e.js", "echo 'unterminated", "env -i FOO=1 python3 -u a.py",
+            "\"$HOME/.claude/hooks/sp ace.sh\""]
     (h / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
         {"type": "command", "command": c} for c in cmds]}]}}))
     inv = build(h, redactor=_Same())
-    assert inv["hook_commands"] == sorted(["a-guard.sh", "b check.sh", "c.py", "d.py", "e.js", "echo"])
+    assert inv["hook_commands"] == sorted(["a-guard.sh", "b-check.sh", "c.py", "d.py", "e.js", "echo", "a.py"])
+
+_HOOK_SECRET = "Zq8" + "Wv3Nk5" + "Rt7Yp2"
+
+def test_hook_commands_never_emit_url_or_inline_script_tail(tmp_path):
+    h = _home(tmp_path)
+    cmds = ["bash -c \"curl https://x.example/services/T0/B0/" + _HOOK_SECRET + "\"",
+            "curl -s https://hooks.example.com/" + _HOOK_SECRET,
+            "node -e \"fetch('https://x/" + _HOOK_SECRET + "')\"",
+            "bash -c 'curl https://x.example/" + _HOOK_SECRET,          # 따옴표 미닫힘 폴백
+            "https://x.example/a?k=" + _HOOK_SECRET]
+    (h / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
+        {"type": "command", "command": c} for c in cmds]}]}}))
+    names = build(h, redactor=_Same())["hook_commands"]
+    assert _HOOK_SECRET not in json.dumps(names) and "Zq8" not in json.dumps(names)
+    assert names == ["bash", "curl", "node"]
 
 def test_fit_input_drops_lowest_signals_first():
     sigs = [{"id": f"s{i}", "count": i, "sessions": ["a"] * i, "samples": ["x" * 200]} for i in range(1, 6)]
