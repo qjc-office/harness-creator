@@ -129,3 +129,15 @@ def test_resume_skipped_non_int_ignored(v):
 def test_unknown_lang_falls_back_to_en():
     assert render({"candidates": []}, ST, 0, None, lang="fr").splitlines()[0] == "# harness-creator report: no candidates"
     assert incomplete_reasons({**ST, "errors": 2}, lang="xx") == ["parse errors 2"]
+
+
+# --- fix round 2 ---
+def test_effects_and_error_detail_redacted(cache):
+    effects = [{"candidate_id": "x " + _GHP, "recurred": True, "last_seen": "2026-10-08T00:00:00Z"}]
+    md = render({"candidates": []}, ST, 0, None, lang="ko", effects=effects)
+    assert "Qw7Qw7" not in md and "[SECRET]" in md and "2026-10-08T00:00:00Z" in md
+    md = render(None, ST, 0, "rc=3 " + _GHP, lang="ko", error_kind="judge", effects=effects)
+    assert md.splitlines()[0] == "# harness-creator 리포트: 실패"
+    assert "Qw7Qw7" not in md and "rc=3" in md
+    md = render(None, ST, 0, "boom " + _GHP, lang="ko")   # error_kind 없는 실패
+    assert "Qw7Qw7" not in md and "boom" in md
