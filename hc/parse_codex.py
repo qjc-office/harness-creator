@@ -1,4 +1,4 @@
-"""Codex rollout jsonl → Event. dev_flywheel/parse_codex.py의 분기를 이벤트 단위로 넓혔다."""
+"""Codex rollout jsonl → Event. 레코드 유형별로 분기해 이벤트로 바꾼다."""
 from __future__ import annotations
 import json, pathlib, re
 from .events import Event, clip, error_signature

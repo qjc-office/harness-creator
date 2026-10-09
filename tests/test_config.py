@@ -8,7 +8,7 @@ def test_data_dir_precedence(tmp_path, monkeypatch):
     monkeypatch.delenv("HC_DATA_DIR", raising=False)
     assert C.data_source() == "fallback"
     assert C.data_dir_path() == pathlib.Path(os.environ["HOME"]) / ".claude/harness-creator"
-    pd = tmp_path / "plugins/data/harness-creator-qjc"
+    pd = tmp_path / "plugins/data/harness-creator-local"
     monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(pd))
     assert C.data_source() == "CLAUDE_PLUGIN_DATA" and C.data_dir_path() == pd
     monkeypatch.setenv("HC_DATA_DIR", str(tmp_path / "t"))
@@ -29,7 +29,7 @@ def test_foreign_plugin_data_ignored(tmp_path, monkeypatch):
 
 def test_own_plugin_data_used(tmp_path, monkeypatch):
     monkeypatch.delenv("HC_DATA_DIR", raising=False)
-    pd = tmp_path / "plugins/data/harness-creator-qjc"
+    pd = tmp_path / "plugins/data/harness-creator-local"
     monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(pd) + "/")
     assert C.data_source() == "CLAUDE_PLUGIN_DATA" and C.data_dir_path() == pd
 

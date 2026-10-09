@@ -1,4 +1,4 @@
-"""Claude Code 전사 jsonl → Event. dev_flywheel/parse_cc.py의 순회·분기 방식을 이벤트 단위로 넓혔다."""
+"""Claude Code 전사 jsonl → Event. 레코드를 순회하며 유형별로 분기해 이벤트로 바꾼다."""
 from __future__ import annotations
 import json, pathlib
 from dataclasses import dataclass, field
