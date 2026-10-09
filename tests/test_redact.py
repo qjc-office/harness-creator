@@ -267,6 +267,26 @@ def test_assignment_quote_context(raw, want):
     out = R().redact(raw)
     assert _Q not in out and out == want
 
+# 자체 탐색(Fix round 2 항목 4)에서 찾은 누출
+@pytest.mark.parametrize("raw,want", [
+    (_PW + "=“" + _Q + " abc def”", _PW + "=“[SECRET]”"),
+    (_PW + "=`" + _Q + " abc def`", _PW + "=`[SECRET]`"),
+    (_PW + '="' + _Q + "abc\n" + _Q + 'def"', _PW + '="[SECRET]"'),
+    (_PW + ' = """' + _Q + ' abcdefgh"""', _PW + ' = """[SECRET]"""'),
+    ("mysql --" + _PW + " " + _Q + "abcdefgh -h db", "mysql --" + _PW + " [SECRET] -h db"),
+], ids=["curly-quote", "backtick", "multiline-closed", "triple-quote", "cli-flag-space"])
+def test_assignment_explored_variants(raw, want):
+    out = R().redact(raw)
+    assert _Q not in out and out == want
+
+def test_cli_flag_short_values_unchanged():
+    assert R().redact("--max-tok" + "ens 4096") == "--max-tokens 4096"
+
+def test_assignment_unclosed_quote_scan_linear_time():
+    t = time.monotonic()
+    R().redact((_PW + '="ab\n') * 5000 + "x" * 50000)
+    assert time.monotonic() - t < 1.0
+
 def test_assignment_long_line_linear_time():
     t = time.monotonic()
     R().redact((_PW + '="a' + "b" * 10) * 5000)
