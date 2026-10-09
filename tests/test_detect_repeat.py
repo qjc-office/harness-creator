@@ -205,3 +205,39 @@ def test_resume_messages_not_clustered():
     import hc.detect as D
     evs = [ev(f"s{i}", f"2026-10-0{i}T00:00:00Z", "user_msg", "continue") for i in range(1, 6)]
     assert detect_repeated_instructions(evs, CFG) == [] and D.LAST_RESUME_SKIPPED == 5
+
+# --- fix round 1: run_detect에 G1·G2·observed가 실제로 배선돼 있는가 ---
+STALE = "릴리스 노트 쓰고 태그 달아서 배포해줘"
+BATCH = "야간 점검 돌리고 결과 표로 정리해줘"
+KEEP = "PR 만들고 CI 통과하면 머지해줘"
+
+def test_run_detect_applies_g1_g2_and_records_observed(cache):
+    import os
+    d = cache / "events"; d.mkdir(parents=True)
+    now = datetime(2026, 10, 9, 12, tzinfo=timezone.utc).timestamp()
+    evs = [Event("claude", f"st{i}", f"2026-10-0{3 + i}T00:00:00Z", "/w", "user_msg", STALE) for i in range(3)]
+    evs += [Event("claude", f"bt{i}", f"2026-10-08T00:00:0{i}Z", "/w", "user_msg", BATCH) for i in range(3)]
+    evs += [Event("claude", f"kp{i}", f"2026-10-08T0{i + 2}:00:00Z", "/w", "user_msg", KEEP) for i in range(3)]
+    f = d / "2026-10-08.jsonl"
+    f.write_text("".join(dumps(e) + "\n" for e in evs), encoding="utf-8")
+    os.utime(f, (now - 3600, now - 3600))
+    data = json.loads(run_detect(7, now=now).read_text())
+    sid = lambda t: f"repeated_instruction:{_key(t)}"
+    assert [s["id"] for s in data["signals"]] == [sid(KEEP)]
+    assert data["signals"][0]["groups"] == ["kp0", "kp1", "kp2"]
+    assert sorted(data["filtered"], key=lambda x: x["gate"]) == [{"gate": "G1", "signal_id": sid(STALE)},
+                                                                  {"gate": "G2", "signal_id": sid(BATCH)}]
+    assert set(data["observed"]) == {sid(STALE), sid(BATCH), sid(KEEP)}
+    assert data["observed"][sid(STALE)] == {"last_seen": "2026-10-05T00:00:00Z", "count": 3}
+
+# --- fix round 1: scope.lang은 비사용자 발화를 빼고, resume_skipped는 길이 필터 통과분만 ---
+def test_scope_lang_ignores_non_user_messages(cache):
+    (cache / "events").mkdir(parents=True)
+    evs = [Event("claude", s, "2026-10-02T00:00:00Z", "/w", "user_msg", "<task-notification> done </task-notification>")
+           for s in "abc"] + [Event("claude", "d", "2026-10-02T00:00:00Z", "/w", "user_msg", "테스트 돌려줘")]
+    assert detect._scope(evs, 7)["lang"] == "ko"
+
+def test_resume_skipped_counts_only_length_passing():
+    evs = [u(f"r{i}", "계속", f"2026-10-0{i + 1}T00:00:00Z") for i in range(3)]
+    evs += [u(f"c{i}", "continue", f"2026-10-0{i + 1}T01:00:00Z") for i in range(2)]
+    assert detect_repeated_instructions(evs, CFG) == [] and detect.LAST_RESUME_SKIPPED == 2

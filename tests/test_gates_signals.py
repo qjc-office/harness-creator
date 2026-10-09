@@ -43,7 +43,22 @@ def test_session_starts_uses_earliest_event():
     st = session_starts([ev("a", "2026-10-08T00:00:05Z", text="second"),
                          ev("a", "2026-10-08T00:00:01Z", "tool_call", ""),
                          ev("a", "2026-10-08T00:00:03Z", text="first")])
-    t, h = st["a"]
+    t, h = st[("claude", "a")]
     import hashlib
     assert t == datetime(2026, 10, 8, 0, 0, 1, tzinfo=timezone.utc).timestamp()
     assert h == hashlib.sha1("first".encode()).hexdigest()[:12]
+
+# --- fix round 1: 빈 첫 발화 세션은 묶지 않고, 세션 키는 (surface, session_id) ---
+def test_sessions_without_user_message_not_batched():
+    evs = [Event("claude", s, f"2026-10-08T00:00:0{i}Z", "/w", "tool_call", "") for i, s in enumerate("abc")]
+    kept, filt = gate_signals([sig(["a", "b", "c"])], evs, CFG, NOW)
+    assert len(kept) == 1 and len(kept[0].groups) == 3 and filt == []
+
+def test_session_starts_keyed_by_surface():
+    st = session_starts([Event("claude", "a", "2026-10-08T00:00:00Z", "/w", "user_msg", "x"),
+                         Event("codex", "a", "2026-10-08T00:00:01Z", "/w", "user_msg", "y")])
+    assert set(st) == {("claude", "a"), ("codex", "a")}
+
+def test_batch_groups_skips_empty_hash():
+    g = batch_groups({"a": (0.0, ""), "b": (1.0, ""), "c": (2.0, "h"), "d": (3.0, "h")}, 10)
+    assert g["a"] == "a" and g["b"] == "b" and g["c"] == g["d"] == "c"
