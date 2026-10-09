@@ -17,7 +17,7 @@ SELF = "harness-creator"
 _MEMORY_MAX = 200
 _TEXT_MAX = 300
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_RUNNER = re.compile(r"^(?:env|bash|sh|zsh|dash|node|python[0-9.]*)$")
+_RUNNER = re.compile(r"^(?:env|bash|sh|zsh|dash|node|python[0-9.]*|perl|ruby)$")
 
 def _clip(red, text: str) -> str:
     """가린 다음 자른다(순서 바꾸지 말 것)."""
@@ -42,12 +42,13 @@ def _entries(paths, base: pathlib.Path, red, cnt, prefix: str = "") -> list:
                     "description": _clip(red, fm.get("description", ""))})
     return out
 
-_SCRIPT_EXT = (".sh", ".py", ".js", ".ts", ".mjs", ".rb")
+_SCRIPT_EXT = (".sh", ".py", ".js", ".ts", ".mjs", ".cjs", ".rb", ".pl")
 _UNSAFE = re.compile(r"\s|://|[?=]")
 
 def _is_file_token(t: str) -> bool:
-    """파일명으로 인정하는 토큰: 공백·`://`·`?`·`=`가 없고, 스크립트 확장자나 경로 구분자가 있는 것."""
-    return not _UNSAFE.search(t) and ("/" in t or t.endswith(_SCRIPT_EXT))
+    """파일명으로 인정하는 토큰: 공백·`://`·`?`·`=`가 없고 스크립트 확장자로 끝나는 것만.
+    확장자 없는 경로(`/hooks/<값>`)는 꼬리가 비밀일 수 있어 인정하지 않는다(중복 힌트 손실은 감수)."""
+    return not _UNSAFE.search(t) and t.endswith(_SCRIPT_EXT)
 
 def _script_name(cmd: str) -> str:
     """훅 명령에서 스크립트 파일명. env·VAR=값·옵션·인터프리터(bash/sh/zsh/node/python*)·`uv run`을 건너뛴다.
@@ -70,7 +71,7 @@ def _script_name(cmd: str) -> str:
         elif _is_file_token(t):
             return base
         else:
-            return runner or ("" if _UNSAFE.search(t) else base)
+            return runner or ("" if _UNSAFE.search(t) or "/" in t else base)
     return runner
 
 def _hook_commands(settings: pathlib.Path) -> list:
