@@ -132,7 +132,7 @@ def _sections(gates, effects, R: dict, red: Redactor) -> list:
         out.append("\n" + R["sec_effect"] + "\n")
         for e in effects:
             key = "effect_recurred" if e.get("recurred") else "effect_clean"
-            out.append(R[key].format(id=e.get("candidate_id", "?"), last_seen=e.get("last_seen", "")))
+            out.append(R[key].format(id=red.redact(str(e.get("candidate_id", "?"))), last_seen=e.get("last_seen", "")))
     gates = gates if isinstance(gates, dict) else {}
     notes = [c for c in gates.get("codex_notes") or [] if isinstance(c, dict)]
     if notes:
@@ -160,10 +160,13 @@ def render(candidates, stats, signals_count, error, scope=None, *, lang="ko", ga
     seen = _scope_lines(stats, signals_count, scope, R)
     if candidates is None and not error and not error_kind:
         error_kind = "missing"
+    cfg = _cfg()
+    red = _redactor(cfg)
     head = []
     if error or error_kind:
         title = R["title_fail"] + (f" ({R['cli_upgrade']})" if error_kind == "cli_upgrade" else "")
-        body = R.get(f"err_{error_kind}", R["err_other"]).format(detail=error or "").strip() if error_kind else str(error)
+        detail = red.redact(str(error or ""))   # 러너 stderr가 모델 출력을 되풀이할 수 있다
+        body = R.get(f"err_{error_kind}", R["err_other"]).format(detail=detail).strip() if error_kind else detail
         head.append(f"{title}\n\n{body}\n\n{seen}")
     else:
         n = len(_items(candidates))
@@ -173,11 +176,9 @@ def render(candidates, stats, signals_count, error, scope=None, *, lang="ko", ga
             title += f" ({R['incomplete'].format(reasons=', '.join(reasons))})"
         head.append(title)
         head.append(f"\n{seen}")
-    cfg = _cfg()
     failed = bool(error or error_kind)
     if not failed:   # 실패 리포트는 설정에 기대는 경고를 건너뛴다(설정이 깨져도 첫 줄은 써야 한다)
         head.extend(_warnings(stats, R, cfg))
-    red = _redactor(cfg)
     body = []
     if not failed:
         for c in _items(candidates):
