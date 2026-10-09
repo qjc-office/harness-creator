@@ -161,3 +161,13 @@ def test_propose_prompt_contract():
     assert t.rstrip().endswith("INPUT JSON:") and "{TODAY}" in t and "{LANG}" in t
     assert '{"candidates": []}' in t and "already does the same job" in t
     assert "hooks/harness-creator/<candidate id>.sh" in t
+
+def test_hook_commands_extensionless_path_not_named(tmp_path):
+    h = _home(tmp_path)
+    cmds = ["/hooks/" + _HOOK_SECRET, "~/bin/" + _HOOK_SECRET, "bash /hooks/" + _HOOK_SECRET + " --x",
+            "node ~/h/w.cjs", "perl ~/h/z.pl", "ruby ~/h/r.rb"]
+    (h / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
+        {"type": "command", "command": c} for c in cmds]}]}}))
+    names = build(h, redactor=_Same())["hook_commands"]
+    assert "Zq8" not in json.dumps(names)
+    assert names == sorted(["bash", "w.cjs", "z.pl", "r.rb"])
