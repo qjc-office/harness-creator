@@ -42,23 +42,36 @@ def _entries(paths, base: pathlib.Path, red, cnt, prefix: str = "") -> list:
                     "description": _clip(red, fm.get("description", ""))})
     return out
 
+_SCRIPT_EXT = (".sh", ".py", ".js", ".ts", ".mjs", ".rb")
+_UNSAFE = re.compile(r"\s|://|[?=]")
+
+def _is_file_token(t: str) -> bool:
+    """파일명으로 인정하는 토큰: 공백·`://`·`?`·`=`가 없고, 스크립트 확장자나 경로 구분자가 있는 것."""
+    return not _UNSAFE.search(t) and ("/" in t or t.endswith(_SCRIPT_EXT))
+
 def _script_name(cmd: str) -> str:
-    """훅 명령에서 실제 스크립트 파일명. env·VAR=값·옵션·인터프리터(bash/sh/zsh/node/python*)·`uv run`을 건너뛴다.
-    셸 문법으로 못 쪼개면(따옴표 미닫힘 등) 첫 공백 토큰을 쓴다."""
+    """훅 명령에서 스크립트 파일명. env·VAR=값·옵션·인터프리터(bash/sh/zsh/node/python*)·`uv run`을 건너뛴다.
+    파일명으로 인정되지 않는 토큰(-c 인자, URL, 명령 문자열)을 만나면 파일명을 내지 않고 실행기 이름
+    (예: bash, curl)만 낸다. 판정 모델로 나가는 값이라 가림 패턴이 못 잡는 비밀(URL 꼬리 등)을 담지 않는다.
+    셸 문법으로 못 쪼개면(따옴표 미닫힘 등) 공백으로 쪼개 같은 규칙을 적용한다."""
     try:
         toks = shlex.split(cmd)
     except ValueError:
-        return pathlib.PurePosixPath(cmd.split()[0]).name
-    i = 0
+        toks = cmd.split()
+    runner, i = "", 0
     while i < len(toks):
         t, base = toks[i], pathlib.PurePosixPath(toks[i]).name
         if base == "uv" and i + 1 < len(toks) and toks[i + 1] == "run":
-            i += 2
-        elif _ASSIGN.match(t) or t.startswith("-") or _RUNNER.match(base):
+            runner, i = "uv", i + 2
+        elif _ASSIGN.match(t) or t.startswith("-"):
             i += 1
-        else:
+        elif _RUNNER.match(base) and not _UNSAFE.search(t):
+            runner, i = base, i + 1
+        elif _is_file_token(t):
             return base
-    return pathlib.PurePosixPath(toks[0]).name if toks else ""
+        else:
+            return runner or ("" if _UNSAFE.search(t) else base)
+    return runner
 
 def _hook_commands(settings: pathlib.Path) -> list:
     try:
