@@ -449,7 +449,9 @@ def test_real_path_runs_fake_claude(tmp_path, no_timeout):
     assert argv[argv.index("--tools") + 1] == ""                 # 도구 0개
     assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
     assert argv[argv.index("--output-format") + 1] == "json"
-    assert ("python3" in _runlog(tmp_path)) == no_timeout
+    # 러너는 timeout → gtimeout → python3 순으로 고른다. macOS 러너엔 coreutils가 없어 기본 PATH에서도 python3 폴백을 쓴다.
+    expect_python = no_timeout or (shutil.which("timeout") is None and shutil.which("gtimeout") is None)
+    assert ("python3" in _runlog(tmp_path)) == expect_python
 
 def test_real_path_timeout_fails(tmp_path):
     r, reports, today, report = _real_path(tmp_path, "sleep 10; cat > /dev/null; printf '{\"candidates\": []}'",
