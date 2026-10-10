@@ -9,6 +9,9 @@ from .redact import RedactError, from_config
 from . import parse_claude, parse_codex
 
 _BASE_CFG = load_defaults()
+# 가림은 text_max_chars 에 이 여유분을 더한 앞부분에만 건다. 경계에 걸친 값이 가림 패턴에 온전히 보이게 하는 폭이다
+# (가림기의 따옴표 값 탐색 거리 4096의 두 배). 원문 전체(최대 64KB)를 가리면 큰 도구 출력이 많은 주에 수집이 느려진다.
+REDACT_MARGIN = 8192
 
 @dataclass
 class CollectStats:
@@ -131,7 +134,7 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
                         res = parse_codex.parse(p, start, sid, wd)
                     # cwd·tool 도 가린다: 프로젝트 폴더 이름과 MCP 도구 이름에 실명·토큰이 들어갈 수 있다
                     # 가린 다음 자른다(순서 바꾸지 말 것). 자른 뒤 가리면 경계에 걸친 값의 앞부분이 샌다
-                    lines = [dumps(type(e)(**{**asdict(e), "text": red.redact(e.text)[:text_max], "cwd": red.redact(e.cwd),
+                    lines = [dumps(type(e)(**{**asdict(e), "text": red.redact(e.text[:text_max + REDACT_MARGIN])[:text_max], "cwd": red.redact(e.cwd),
                                               "tool": red.redact(e.tool)})) + "\n"
                              for e in res.events]
                 except RedactError:

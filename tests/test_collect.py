@@ -497,3 +497,15 @@ def test_old_signals_and_input_files_pruned(cache, src, tmp_path):
     collect(7, include_codex=True, sources=src, redactor=FakeRedactor(), now=now)
     assert not old_sig.exists() and not old_in.exists()
     assert new_sig.exists() and report.exists()        # 리포트는 보존 대상이 아니다
+
+def test_redaction_window_is_bounded(cache, src, tmp_path):
+    # 원문 전체(최대 64KB)를 가리지 않는다. text_max_chars + 여유분만 가린 뒤 자른다(수집 시간 상한)
+    import hc.collect as C
+    seen = []
+    class Rec:
+        def redact(self, t):
+            seen.append(len(t)); return t
+    _cc(tmp_path / "cc", "s1.jsonl", [_u("z" * 60000)])
+    collect(7, include_codex=True, sources=src, redactor=Rec())
+    assert max(seen) <= 500 + C.REDACT_MARGIN and C.REDACT_MARGIN >= 8192
+    assert _events(cache)[0]["text"] == "z" * 500
