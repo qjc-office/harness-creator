@@ -42,6 +42,12 @@ def _entries(paths, base: pathlib.Path, red, cnt, prefix: str = "") -> list:
                     "description": _clip(red, fm.get("description", ""))})
     return out
 
+_NAME_OK = re.compile(r"^[A-Za-z0-9._+-]+$")
+
+def _safe(name: str) -> str:
+    """판정 모델로 나가는 파일명은 이 문자 집합일 때만 낸다(셸 연산자·변수 확장 뒤의 비밀이 붙지 않게)."""
+    return name if _NAME_OK.fullmatch(name) else ""
+
 _SCRIPT_EXT = (".sh", ".py", ".js", ".ts", ".mjs", ".cjs", ".rb", ".pl")
 _UNSAFE = re.compile(r"\s|://|[?=]")
 
@@ -69,9 +75,9 @@ def _script_name(cmd: str) -> str:
         elif _RUNNER.match(base) and not _UNSAFE.search(t):
             runner, i = base, i + 1
         elif _is_file_token(t):
-            return base
+            return _safe(base) or runner
         else:
-            return runner or ("" if _UNSAFE.search(t) or "/" in t else base)
+            return runner or ("" if _UNSAFE.search(t) or "/" in t else _safe(base))
     return runner
 
 def _hook_commands(settings: pathlib.Path) -> list:

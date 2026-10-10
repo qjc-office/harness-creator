@@ -171,3 +171,17 @@ def test_hook_commands_extensionless_path_not_named(tmp_path):
     names = build(h, redactor=_Same())["hook_commands"]
     assert "Zq8" not in json.dumps(names)
     assert names == sorted(["bash", "w.cjs", "z.pl", "r.rb"])
+
+# --- 마지막 대체 토큰도 파일명 문자 집합([A-Za-z0-9._+-])일 때만 내보낸다 ---
+import pytest as _pt
+
+@_pt.mark.parametrize("cmd", ["a.sh&&" + "Zq9" * 6, "${HOOK_" + "Zq9" * 6 + "}", "run;" + "Zq9" * 6 + ".sh"])
+def test_script_name_rejects_odd_characters(cmd):
+    from hc.inventory import _script_name
+    out = _script_name(cmd)
+    assert "Zq9" not in out
+
+def test_script_name_keeps_plain_names():
+    from hc.inventory import _script_name
+    assert _script_name("bash ~/hooks/guard-x.sh") == "guard-x.sh"
+    assert _script_name("notify") == "notify"
