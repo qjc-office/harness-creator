@@ -37,10 +37,10 @@ _hc_lock_state() {
   if [ "$pid" -gt 1 ] && kill -0 "$pid" 2>/dev/null; then echo live; else echo dead; fi
 }
 _hc_dir_age() {
-  local m
-  m="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null)"
-  case "$m" in ''|*[!0-9]*) echo 0; return ;; esac
-  echo $(( $(date +%s) - m ))
+  # stat 문법은 OS 마다 다르다(GNU stat -f 는 파일시스템 정보). 경과 초를 python 으로 계산한다
+  local a
+  a="$(python3 -c 'import os, sys, time; print(max(0, int(time.time() - os.stat(sys.argv[1]).st_mtime)))' "$1" 2>/dev/null)"
+  case "$a" in ''|*[!0-9]*) echo 0 ;; *) echo "$a" ;; esac
 }
 if ! mkdir "$LOCK" 2>/dev/null; then
   case "$(_hc_lock_state "$LOCK")" in

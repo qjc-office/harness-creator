@@ -361,11 +361,19 @@ def test_runner_rereads_pid_after_acquire():
 # --- 시간 제한 실행기를 timeout → gtimeout → python3 순으로 고른다 ---
 import shutil, sys as _sys
 
+_NEEDED = ("bash", "sh", "cat", "mkdir", "date", "mv", "rm", "head", "sed", "basename", "dirname", "mktemp",
+           "grep", "sleep", "touch", "ls", "wc", "stat", "env", "tr", "printf", "kill")
+
 def _no_timeout_path(tmp_path):
-    """timeout·gtimeout 없는 PATH. python3는 테스트 인터프리터를 가리킨다(/usr/bin/python3는 3.9라 쓰지 않는다)."""
+    """timeout·gtimeout 없는 PATH. 빈 폴더에 러너·스텁이 쓰는 실행 파일만 심링크로 둔다(OS 마다 /usr/bin 내용이 달라
+    /usr/bin 을 통째로 넣으면 timeout 이 섞일 수 있다). python3는 테스트 인터프리터를 가리킨다."""
     b = tmp_path / "pybin"; b.mkdir()
     (b / "python3").symlink_to(_sys.executable)
-    path = f"{b}:/usr/bin:/bin"
+    for name in _NEEDED:
+        src = shutil.which(name)
+        if src:
+            (b / name).symlink_to(src)
+    path = str(b)
     assert shutil.which("timeout", path=path) is None and shutil.which("gtimeout", path=path) is None
     return path
 
@@ -699,3 +707,21 @@ def test_verbose_array_init_builtin_plugins_only_passes(tmp_path):
     body = _array_stub(tmp_path, [init, {"type": "result", "is_error": False, "result": "{\"candidates\": []}"}])
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+
+
+# --- 잠금 경과 시간은 OS 의 stat 문법에 기대지 않는다(GNU stat -f 는 파일시스템 정보를 낸다) ---
+def _gnu_stat_path(tmp_path):
+    b = tmp_path / "gnubin"; b.mkdir()
+    s = b / "stat"
+    s.write_text("#!/bin/bash\n"
+                 "if [ \"$1\" = -f ]; then printf '  File: \"%s\"\\n    ID: 0 Namelen: 255\\n' \"$3\"; "
+                 "echo \"stat: cannot read file system information for '$2'\" >&2; exit 1; fi\n"
+                 "if [ \"$1\" = -c ]; then exec /usr/bin/stat -f %m \"$3\" 2>/dev/null || exec /usr/bin/stat -c %Y \"$3\"; fi\n"
+                 "exit 2\n")
+    s.chmod(0o755)
+    return f"{b}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+
+def test_pidless_old_lock_alerts_with_gnu_stat(tmp_path):
+    r, *_ = _run(tmp_path, OK_STUB, pre=_aged(120), extra_env={"PATH": _gnu_stat_path(tmp_path)})
+    assert r.returncode == 75
+    assert "잠금에 pid 없음" in _runlog(tmp_path)
