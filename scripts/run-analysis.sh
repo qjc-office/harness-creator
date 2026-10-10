@@ -159,7 +159,7 @@ rm -f "${PF:?}"
 [ "$rc" -ne 0 ] && _log "판정 단계 rc=$rc"
 # 응답이 --output-format json 봉투면 result 문자열을 꺼낸다. 그 안의 첫 '{'~마지막 '}'를 JSON으로 읽어 JUDGED(0600)에 쓴다.
 if [ "$rc" -eq 0 ]; then
-  python3 - "$RAW" "$JUDGED" <<'PY' >> "$LOG" 2>&1 || rc=65
+  python3 - "$RAW" "$JUDGED" <<'PY' >> "$LOG" 2>&1
 import json, os, sys
 raw_p, out_p = sys.argv[1], sys.argv[2]
 try:
@@ -176,6 +176,13 @@ except ValueError:
     env = None
 # CLI 전역 설정 verbose=true 면 json 출력이 메시지 배열이 된다(--restricted 로도 안 꺼짐). 마지막 result 원소만 쓴다
 if isinstance(env, list):
+    # 배열에는 init 원소가 실린다. 있으면 판정 격리(도구 0개·MCP 서버 0개)를 한 번 더 확인한다(이중 방어)
+    for m in env:
+        if isinstance(m, dict) and m.get("type") == "system" and m.get("subtype") == "init":
+            if m.get("tools") != [] or m.get("mcp_servers") != []:
+                _write(text)
+                print("판정 격리 위반: init 의 tools·mcp_servers 가 비어 있지 않음", file=sys.stderr)
+                sys.exit(3)
     res = [m for m in env if isinstance(m, dict) and m.get("type") == "result"]
     if not res:
         _write(text)
@@ -199,12 +206,16 @@ except ValueError as e:
     sys.exit(1)
 _write(json.dumps(obj, ensure_ascii=False, indent=1))
 PY
+  prc=$?
+  # 3 = 격리 위반(rc 66, 리포트에 isolation 표기), 그 밖의 실패 = 해석 실패(rc 65)
+  case "$prc" in 0) ;; 3) rc=66 ;; *) rc=65 ;; esac
 fi
 rm -f "${RAW:?}"
 
 if [ "$rc" -ne 0 ] || ! "${CLI[@]}" validate "$JUDGED" >> "$LOG" 2>&1; then
   [ -e "$JUDGED" ] && mv -f "$JUDGED" "${JUDGED%.json}.invalid.json"
-  _render_err judge "rc=$rc"; _fail "propose/validate 실패 rc=$rc"; exit 2
+  det="rc=$rc"; [ "$rc" -eq 66 ] && det="rc=$rc isolation"
+  _render_err judge "$det"; _fail "propose/validate 실패 $det"; exit 2
 fi
 if ! CANDS="$("${CLI[@]}" gate "$JUDGED" 2>> "$LOG")" || [ ! -f "$CANDS" ]; then
   _render_err gate; _fail "gate 실패"; exit 2

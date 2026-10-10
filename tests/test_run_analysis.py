@@ -521,12 +521,26 @@ def _array_stub(tmp_path, items):
 
 def test_verbose_array_envelope_is_unwrapped(tmp_path):
     body = _array_stub(tmp_path, [
-        {"type": "system", "subtype": "init", "tools": []},
+        {"type": "system", "subtype": "init", "tools": [], "mcp_servers": []},
         {"type": "assistant", "message": {"content": [{"type": "text", "text": "{\"candidates\": [1]}"}]}},
         {"type": "result", "subtype": "success", "is_error": False, "result": "{\"candidates\": []}"}])
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 0, r.stderr + _runlog(tmp_path)
     assert "후보 없음" in _first_line(report)
+
+@pytest.mark.parametrize("init", [
+    {"type": "system", "subtype": "init", "tools": ["Bash"], "mcp_servers": []},
+    {"type": "system", "subtype": "init", "tools": [], "mcp_servers": [{"name": "x", "status": "connected"}]},
+    {"type": "system", "subtype": "init", "mcp_servers": []},
+])
+def test_verbose_array_init_not_isolated_fails(tmp_path, init):
+    # 배열에 init 원소가 있으면 판정 격리(도구 0개·MCP 0개)를 한 번 더 확인한다. 아니면 결과를 쓰지 않고 실패
+    body = _array_stub(tmp_path, [init, {"type": "result", "is_error": False, "result": "{\"candidates\": []}"}])
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2 and "실패" in _first_line(report)
+    assert "isolation" in report.read_text(encoding="utf-8")
+    assert "격리 위반" in _runlog(tmp_path)
+    assert not (reports / f"{today}.judged.json").exists()
 
 def test_verbose_array_envelope_is_error_fails(tmp_path):
     body = _array_stub(tmp_path, [{"type": "system", "subtype": "init"},
