@@ -483,3 +483,17 @@ def test_user_text_max_chars_is_respected(cache, src, tmp_path):
     _cc(tmp_path / "cc", "s1.jsonl", [_u("y" * 300)])
     collect(7, include_codex=True, sources=src, redactor=Redactor())
     assert _events(cache)[0]["text"] == "y" * 40
+
+def test_old_signals_and_input_files_pruned(cache, src, tmp_path):
+    # 신호 파일과 판정 입력 파일도 이벤트와 같은 보존 기간(30일)으로 지운다
+    (cache / "signals").mkdir(parents=True); (cache / "reports").mkdir(parents=True)
+    now = time.time()
+    old_sig, new_sig = cache / "signals" / "2026-08-01.json", cache / "signals" / "2026-09-20.json"
+    old_in, report = cache / "reports" / "2026-08-01.input.json", cache / "reports" / "2026-08-01.md"
+    for f in (old_sig, new_sig, old_in, report):
+        f.write_text("{}")
+    for f in (old_sig, old_in, report):
+        os.utime(f, (now - 31 * 86400, now - 31 * 86400))
+    collect(7, include_codex=True, sources=src, redactor=FakeRedactor(), now=now)
+    assert not old_sig.exists() and not old_in.exists()
+    assert new_sig.exists() and report.exists()        # 리포트는 보존 대상이 아니다

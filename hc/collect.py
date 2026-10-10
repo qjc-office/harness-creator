@@ -57,11 +57,11 @@ def _discover(sources: dict, since: float, counter: dict | None = None) -> list[
 def _write_atomic(path: pathlib.Path, data: str) -> None:
     write_private(path, data)   # 0600 + 원자 교체(hc/fsutil.py)
 
-def _prune_events(ev_dir: pathlib.Path, keep_days: int, now: float) -> None:
-    """보존 기간(config events_retention_days)보다 오래된 이벤트 파일을 지운다. 파일 mtime 기준."""
+def _prune_events(ev_dir: pathlib.Path, keep_days: int, now: float, pattern: str = "*.jsonl") -> None:
+    """보존 기간(config events_retention_days)보다 오래된 파일을 지운다. 파일 mtime 기준."""
     if not ev_dir.is_dir():
         return
-    for f in ev_dir.glob("*.jsonl"):
+    for f in ev_dir.glob(pattern):
         try:
             if f.stat().st_mtime < now - keep_days * 86400:
                 f.unlink()
@@ -81,6 +81,9 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
         paths.pop("codex", None)
     root = data_dir()
     _prune_events(root / "events", cfg["events_retention_days"], now)
+    # 신호 파일과 판정 입력도 세션 발췌를 담으므로 이벤트와 같은 보존 기간으로 지운다(리포트는 남긴다)
+    _prune_events(root / "signals", cfg["events_retention_days"], now, "*.json")
+    _prune_events(root / "reports", cfg["events_retention_days"], now, "*.input.json")
     cur_path = root / "cursor.json"
     cursor = json.loads(cur_path.read_text()) if cur_path.exists() else {}
     skipped = {"outside": 0}
