@@ -301,3 +301,19 @@ def test_consent_time_is_range_from_default_coefficient(cache):
     for lang, want in (("en", "about 3-6 min"), ("zh", "收集约 3~6 分钟")):
         (cache / "config.json").write_text(json.dumps({"lang": lang}))
         assert want in run(cache, "consent-text").stdout, lang
+
+# --- 실패 리포트는 최신 리포트여도 재분석을 막지 않는다 ---
+@_pytest.mark.parametrize("lang", ["en", "ko", "zh"])
+def test_status_failed_report_needs_analysis(cache, lang):
+    from hc.lang import load_pack
+    (cache / "reports").mkdir(parents=True)
+    title = load_pack(lang)["report"]["title_fail"]
+    (cache / "reports" / "2099-01-01.md").write_text(title + " (x)\n\nreason\n", encoding="utf-8")
+    st = json.loads(run(cache, "status").stdout)
+    assert st["latest_report"] and st["needs_analysis"] is True
+
+def test_status_fresh_ok_report_does_not_need_analysis(cache):
+    (cache / "reports").mkdir(parents=True)
+    (cache / "reports" / "2099-01-01.md").write_text("# harness-creator report: no candidates\n", encoding="utf-8")
+    st = json.loads(run(cache, "status").stdout)
+    assert st["needs_analysis"] is False

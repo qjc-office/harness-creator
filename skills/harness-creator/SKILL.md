@@ -27,7 +27,7 @@ Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" status`. If `consent` is fal
 
 ## 3. Analysis
 
-If `needs_analysis` is true (no report, or older than 7 days) and `running` is false, start `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-analysis.sh"` with the Bash tool using `run_in_background`, tell the user it reads their sessions and calls their claude CLI once, and wait for the background task to finish before step 4. If `running` is true, say so and wait. If the report's first line says failed, report the date, the reason line and `<data_dir>/logs/run.log`, and stop. A first line that mentions a CLI upgrade means the user must upgrade Claude Code; do not retry without `--restricted` or `--safe-mode`.
+If `needs_analysis` is true (no report, the last report failed, or older than 7 days) and `running` is false, start `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-analysis.sh"` with the Bash tool using `run_in_background`, tell the user it reads their sessions and calls their claude CLI once, and wait for the background task to finish before step 4. If `running` is true, say so and wait. If the report's first line says failed, report the date, the reason line and `<data_dir>/logs/run.log`, and stop. A first line that mentions a CLI upgrade means the user must upgrade Claude Code; do not retry without `--restricted` or `--safe-mode`.
 
 ## 4. Show candidates
 

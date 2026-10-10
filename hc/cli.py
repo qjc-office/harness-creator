@@ -42,12 +42,22 @@ def _lock_running() -> bool:
     except (OSError, ValueError):
         return False
 
+def _report_failed(rep) -> bool:
+    """리포트 첫 줄이 실패 제목(어느 언어든)인가. 실패 리포트는 최신이어도 재분석을 막지 않는다."""
+    try:
+        with open(rep, encoding="utf-8", errors="replace") as fh:
+            first = fh.readline().rstrip("\n")
+    except OSError:
+        return True
+    return any(first.startswith(load_pack(l)["report"]["title_fail"]) for l in LANGS)
+
 def _status(cfg: dict) -> dict:
     rep = _latest("reports", "????-??-??.md")
     age = (now() - rep.stat().st_mtime) / 86400 if rep else None
+    needs = rep is None or age > cfg["report_max_age_days"] or _report_failed(rep)
     return {"data_dir": str(data_dir()), "data_source": data_source(), "consent": bool(cfg.get("consent")),
             "latest_report": str(rep) if rep else None, "report_age_days": round(age, 2) if age is not None else None,
-            "needs_analysis": rep is None or age > cfg["report_max_age_days"], "running": _lock_running(),
+            "needs_analysis": needs, "running": _lock_running(),
             "lang": _resolve_lang(cfg, _signals_doc().get("scope"))}
 
 def _minutes_range(total_mb: float, mb_per_min) -> dict:
