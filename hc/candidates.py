@@ -128,23 +128,29 @@ def _check_one(i, c, index) -> list:
     errs += _check_change(i, c.get("proposed_change"), form, c.get("id"))
     return errs
 
-def validate(data, signals: list) -> list:
-    """LLM 출력과 리포트 사이의 유일한 관문. 예외를 던지지 않고 오류 목록만 돌려준다.
-    signals는 신호 파일의 signals 목록이다. 인용·세션 수를 그 신호에 대조한다."""
+def check_each(data, signals: list):
+    """(최상위 오류 목록, [(후보, 그 후보의 오류 목록)]). 최상위가 깨졌으면 후보 목록은 비어 있다."""
     if not isinstance(data, dict) or not isinstance(data.get("candidates"), list):
-        return ["최상위는 {\"candidates\": [...]} 여야 한다"]
+        return ["최상위는 {\"candidates\": [...]} 여야 한다"], []
     index = _index_signals(signals)
-    errs, seen = [], set()
+    out, seen = [], set()
     for i, c in enumerate(data["candidates"]):
         if not isinstance(c, dict):
-            errs.append(f"[{i}] dict 아님"); continue
-        errs += _check_one(i, c, index)
+            out.append((c, [f"[{i}] dict 아님"])); continue
+        errs = _check_one(i, c, index)
         cid = c.get("id")
         if _str(cid):
             if cid in seen:
                 errs.append(f"[{i}] 후보 id 중복: {cid}")
             seen.add(cid)
-    return errs
+        out.append((c, errs))
+    return [], out
+
+def validate(data, signals: list) -> list:
+    """LLM 출력과 리포트 사이의 유일한 관문. 예외를 던지지 않고 오류 목록만 돌려준다.
+    signals는 신호 파일의 signals 목록이다. 인용·세션 수를 그 신호에 대조한다."""
+    top, each = check_each(data, signals)
+    return top + [e for _, errs in each for e in errs]
 
 def _latest_candidates():
     d = data_dir() / "reports"

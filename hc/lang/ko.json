@@ -43,6 +43,7 @@
     "gate_G3": "Codex 전용 후보",
     "gate_G4": "상시 로드 규칙 근거 부족",
     "gate_G5": "주간 한도 초과",
+    "gate_invalid": "검증 실패로 뺀 후보",
     "gate_resume": "재개 문구 발화",
     "err_consent": "동의 기록 없음. /harness-creator 를 먼저 실행해 동의한다.",
     "err_collect": "수집 실패 {detail}",

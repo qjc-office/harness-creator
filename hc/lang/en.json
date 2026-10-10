@@ -41,6 +41,7 @@
     "gate_G3": "Codex-only candidate",
     "gate_G4": "not enough evidence for an always-loaded rule",
     "gate_G5": "over the weekly limit",
+    "gate_invalid": "failed validation (dropped)",
     "gate_resume": "resume-only messages",
     "err_consent": "No consent recorded. Run /harness-creator first and accept.",
     "err_collect": "collection failed {detail}",

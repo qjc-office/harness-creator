@@ -40,6 +40,7 @@
     "gate_G3": "仅 Codex 的候选",
     "gate_G4": "常驻规则依据不足",
     "gate_G5": "超出每周上限",
+    "gate_invalid": "未通过校验 (已移除)",
     "gate_resume": "仅为继续指令的消息",
     "err_consent": "没有同意记录。请先运行 /harness-creator 并同意。",
     "err_collect": "收集失败 {detail}",

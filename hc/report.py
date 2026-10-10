@@ -128,6 +128,8 @@ def _scope_lines(stats: dict, signals_count: int, scope, R: dict) -> str:
                                 claude=ev.get("claude", 0), codex=ev.get("codex", 0))
     return f"{seen}\n\n{inc}"
 
+_GATES = ("G1", "G2", "G3", "G4", "G5", "invalid")
+
 def _sections(gates, effects, R: dict, red: Redactor) -> list:
     out = []
     if effects:
@@ -143,12 +145,12 @@ def _sections(gates, effects, R: dict, red: Redactor) -> list:
                 for c in notes]
     counts = {}
     for f in gates.get("filtered") or []:
-        if isinstance(f, dict) and f.get("gate") in ("G1", "G2", "G3", "G4", "G5"):
+        if isinstance(f, dict) and f.get("gate") in _GATES:
             counts[f["gate"]] = counts.get(f["gate"], 0) + 1
     resume = _count(gates, "resume_skipped") or 0
     if counts or resume:
         out.append("\n" + R["sec_filtered"] + "\n")
-        for g in ("G1", "G2", "G3", "G4", "G5"):
+        for g in _GATES:
             if counts.get(g):
                 out.append(R["filtered_item"].format(label=R[f"gate_{g}"], n=counts[g]))
         if resume:

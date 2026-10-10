@@ -1,7 +1,7 @@
 """harness-creator 하위 명령. 러너(run-analysis.sh)와 SKILL.md가 이 명령만 부른다.
 종료 코드: 0 정상, 2 검증·결정 오류, 3 가림 실패·불완전·입력 초과, 4 수집 통계 손상, 5 동의 없음, 6 설정 오류, 7 적용 오류, 75 실행 중."""
 from __future__ import annotations
-import argparse, json, math, os, shutil, sys, time
+import argparse, json, math, os, pathlib, shutil, sys, time
 from datetime import datetime
 from hc.config import (ConfigError, claude_home, data_dir, data_source, expand, load_config, now,
                        save_user_config)
@@ -200,15 +200,27 @@ def _dispatch(a) -> int:
         write_private(path, json.dumps(payload, ensure_ascii=False))
         print(path); return 0
     if a.cmd == "validate":
-        from hc.candidates import validate
+        # 무효 후보만 빼서 invalid 목록(리포트의 걸러진 절)으로 옮기고 나머지는 진행한다. 전부 무효면 실패
+        from hc.candidates import check_each
         try:
             data = json.loads(open(a.path, encoding="utf-8").read())
         except (OSError, ValueError) as e:
             print(f"읽기 실패: {e}", file=sys.stderr); return 2
-        errs = validate(data, _signals_doc().get("signals", []))
-        for e in errs:
+        top, each = check_each(data, _signals_doc().get("signals", []))
+        for e in top + [e for _, errs in each for e in errs]:
             print(e, file=sys.stderr)
-        return 2 if errs else 0
+        if top:
+            return 2
+        valid = [c for c, errs in each if not errs]
+        bad = [c for c, errs in each if errs]
+        if bad and not valid:
+            return 2
+        if bad:
+            inv = [{"candidate_id": c.get("id") if isinstance(c, dict) and isinstance(c.get("id"), str) else "?"}
+                   for c in bad]
+            write_private(pathlib.Path(a.path), json.dumps({"candidates": valid, "invalid": inv},
+                                                           ensure_ascii=False, indent=1))
+        return 0
     if a.cmd == "gate":
         from hc.gates import gate_candidates
         try:
@@ -217,6 +229,7 @@ def _dispatch(a) -> int:
             print(f"읽기 실패: {e}", file=sys.stderr); return 2
         keep, codex, filtered = gate_candidates(data.get("candidates", []), _signals_doc().get("signals", []),
                                                 cfg, claude_home())
+        filtered = [{"gate": "invalid", **x} for x in data.get("invalid") or [] if isinstance(x, dict)] + filtered
         out = data_dir() / "reports"; out.mkdir(exist_ok=True)
         write_private(out / f"{_today()}.candidates.json", json.dumps({"candidates": keep}, ensure_ascii=False, indent=1))
         write_private(out / f"{_today()}.gates.json",

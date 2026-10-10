@@ -327,3 +327,36 @@ def test_consent_text_mentions_inventory_sent(cache, lang):
     out = run(cache, "consent-text").stdout
     line = load_pack(lang)["consent"]["send_inventory"]
     assert line in out and "200" in line and "MEMORY.md" in line
+
+# --- validate: 무효 후보만 걸러진 절로 빼고 나머지는 진행. 전부 무효면 실패 ---
+def _sig_file(cache):
+    cache.mkdir(exist_ok=True); (cache / "signals").mkdir(exist_ok=True)
+    (cache / "signals" / "2026-10-09.json").write_text(json.dumps({"generated_at": "x", "signals": [
+        {"id": "failure_loop:a", "samples": ["실제 인용"], "sessions": ["s1", "s2"], "groups": ["s1", "s2"],
+         "surfaces": ["claude"], "days": ["2026-10-08"], "count": 6}]}))
+
+def test_validate_drops_only_invalid_candidates(cache, tmp_path):
+    _sig_file(cache)
+    bad = {**_cand("지어낸 인용"), "id": "hc-2026-10-09-02",
+           "proposed_change": {"action": "create", "path": "hooks/harness-creator/hc-2026-10-09-02.sh", "summary": "s"}}
+    j = tmp_path / "j.json"; j.write_text(json.dumps({"candidates": [_cand("실제 인용"), bad]}))
+    r = run(cache, "validate", str(j))
+    assert r.returncode == 0, r.stderr
+    assert "quotes" in r.stderr                                   # 사유는 로그로
+    data = json.loads(j.read_text())
+    assert [c["id"] for c in data["candidates"]] == ["hc-2026-10-09-01"]
+    assert data["invalid"] == [{"candidate_id": "hc-2026-10-09-02"}]
+    g = run(cache, "gate", str(j))
+    assert g.returncode == 0, g.stderr
+    gates = json.loads(next((cache / "reports").glob("*.gates.json")).read_text())
+    assert {"gate": "invalid", "candidate_id": "hc-2026-10-09-02"} in gates["filtered"]
+    (cache / "config.json").write_text(json.dumps({"lang": "en"}))
+    (cache / "collect-stats.json").write_text(json.dumps({"files": 0, "events": {}, "errors": 0, "deferred": 0, "malformed": 0}))
+    rp = run(cache, "render", "--candidates", g.stdout.strip())
+    from hc.lang import load_pack
+    assert load_pack("en")["report"]["gate_invalid"] in pathlib.Path(rp.stdout.strip()).read_text()
+
+def test_validate_all_invalid_fails(cache, tmp_path):
+    _sig_file(cache)
+    j = tmp_path / "j.json"; j.write_text(json.dumps({"candidates": [_cand("지어낸 인용")]}))
+    assert run(cache, "validate", str(j)).returncode == 2
