@@ -62,6 +62,7 @@
     "read": "읽는 범위: 지난 {days}일 Claude Code 세션 파일 {claude_files}개({claude_mb} MB).",
     "read_codex": "Codex 세션 파일 {codex_files}개({codex_mb} MB)는 아래 질문에 동의할 때만 읽는다.",
     "send": "보내는 것: 시크릿·개인정보를 가린 발췌만, 최대 {max_kb} KB를 당신의 claude CLI(모델 {model})로 한 번 보낸다. 다른 곳으로는 보내지 않는다.",
+    "send_inventory": "함께 보내는 것: 이미 있는 것을 다시 제안하지 않도록 기존 하네스 목록을 같은 방식으로 가려 보낸다. 규칙·스킬·에이전트·명령·설치 플러그인의 이름과 설명, 훅 스크립트 이름, 메모리 색인 파일(MEMORY.md)의 목록 줄 최대 200줄이 들어간다.",
     "time": "예상 시간: 수집 약 {min_lo}~{min_hi}분(파일 크기 기준 추정) + 판정 1회.",
     "store": "저장 위치: {data_dir} (폴더 0700, 파일 0600, 이벤트는 30일 뒤 삭제).",
     "codex_q": "Codex 세션도 분석에 넣을까? 넣으면 가린 Codex 대화 발췌가 Anthropic 모델로 간다."

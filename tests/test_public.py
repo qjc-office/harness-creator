@@ -162,3 +162,8 @@ def test_build_output_matches_build_sets(capsys):
     hs, lens = cp.build_sets(["a-bc-de", "zz-top"])
     assert {l for l in out if not l.startswith("#")} == hs
     assert [l for l in out if l.startswith("# lengths:")] == ["# lengths: " + ",".join(map(str, sorted(lens)))]
+
+def test_readmes_state_inventory_sent():
+    for n in READMES:
+        t = (ROOT / n).read_text(encoding="utf-8")
+        assert "MEMORY.md" in t and "200" in t, n

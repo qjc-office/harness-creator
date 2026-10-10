@@ -15,7 +15,7 @@ Then run `/harness-creator`. Requires Python 3.9+ and a Claude Code version whos
 
 1. First run asks for consent: which sessions are read, what is sent, how big, a rough collection time range (estimated at 1000 MB per minute, shown as N-2N min), and whether to include Codex. If you include Codex, masked Codex excerpts are also sent for judging to your `claude` CLI, that is, to Anthropic.
 2. Collects the last 7 days, masks secrets and personal data at collection time, detects signals, and drops stale signals, batch-run inflation, Codex-only issues, weakly supported always-loaded rules, and anything past 3 candidates.
-3. Sends masked excerpts once to your own `claude` CLI with no tools, no MCP servers, your settings ignored and your CLAUDE.md, skills, plugins and hooks off (`--restricted --safe-mode --tools ""`), from an empty temporary folder.
+3. Sends masked excerpts once to your own `claude` CLI with no tools, no MCP servers, your settings ignored and your CLAUDE.md, skills, plugins and hooks off (`--restricted --safe-mode --tools ""`), from an empty temporary folder. Along with the excerpts it sends a masked list of your existing harness so the judge does not propose what you already have: names and descriptions of your rules, skills, agents, commands and installed plugins, hook script names, and up to 200 list lines from your memory index files (`MEMORY.md`). The consent screen says this too.
 4. Shows candidates; you pick. Approved rules, skills and hooks are written to `~/.claude` after you see the diff. Memory, script and agent ideas are shown as drafts only.
 5. The next analysis reports whether an applied harness's signal came back.
 

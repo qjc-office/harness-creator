@@ -317,3 +317,13 @@ def test_status_fresh_ok_report_does_not_need_analysis(cache):
     (cache / "reports" / "2099-01-01.md").write_text("# harness-creator report: no candidates\n", encoding="utf-8")
     st = json.loads(run(cache, "status").stdout)
     assert st["needs_analysis"] is False
+
+@_pytest.mark.parametrize("lang", ["en", "ko", "zh"])
+def test_consent_text_mentions_inventory_sent(cache, lang):
+    # 판정 입력에는 세션 발췌 말고도 기존 자산 목록(이름·설명·메모리 목록 줄 최대 200)이 실린다. 동의 화면이 알린다
+    from hc.lang import load_pack
+    cache.mkdir(exist_ok=True)
+    (cache / "config.json").write_text(json.dumps({"lang": lang}))
+    out = run(cache, "consent-text").stdout
+    line = load_pack(lang)["consent"]["send_inventory"]
+    assert line in out and "200" in line and "MEMORY.md" in line

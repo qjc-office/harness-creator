@@ -60,6 +60,7 @@
     "read": "What is read: {claude_files} Claude Code session files ({claude_mb} MB) from the last {days} days.",
     "read_codex": "{codex_files} Codex session files ({codex_mb} MB) are read only if you agree below.",
     "send": "What is sent: masked excerpts only (secrets and personal data removed), at most {max_kb} KB, once, to your own claude CLI (model {model}). Nothing is sent anywhere else.",
+    "send_inventory": "Also sent, so the judge can avoid proposing what you already have: a list of your existing harness, masked the same way. It holds the names and descriptions of your rules, skills, agents, commands and installed plugins, hook script names, and up to 200 list lines from your memory index files (MEMORY.md).",
     "time": "Estimated time: about {min_lo}-{min_hi} min of collection (estimate from file size) + one judging call.",
     "store": "Stored at: {data_dir} (folder 0700, files 0600, events deleted after 30 days).",
     "codex_q": "Include Codex sessions too? If yes, masked Codex excerpts are sent to an Anthropic model."

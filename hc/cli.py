@@ -76,6 +76,7 @@ def _consent_text(cfg: dict) -> str:
              K["read"].format(days=cfg["days"], claude_files=e["claude"]["files"], claude_mb=mb(e["claude"]["bytes"])),
              K["read_codex"].format(codex_files=e["codex"]["files"], codex_mb=mb(e["codex"]["bytes"])),
              K["send"].format(max_kb=cfg["judge"]["max_input_bytes"] // 1024, model=cfg["judge"]["model"]),
+             K["send_inventory"],
              K["time"].format(**_minutes_range(total_mb, cfg["estimate_mb_per_min"])),
              K["store"].format(data_dir=data_dir()), "", K["codex_q"]]
     return "\n".join(lines)
