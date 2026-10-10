@@ -149,19 +149,20 @@ def _score(s) -> int:
     return int(s.get("count", 0) or 0) * len(s.get("groups") or s.get("sessions") or [])
 
 def fit_input(signals: list, inventory: dict, max_bytes: int) -> dict:
-    """판정 입력을 동의한 최대 크기 안으로 줄인다. 순서: 메모리 줄 → 점수 낮은 신호(1개는 남김) → 자산 설명.
+    """판정 입력을 동의한 최대 크기 안으로 줄인다. 순서: 메모리 줄 → 자산 설명 → 점수 낮은 신호(1개는 남김).
+    신호가 판정의 근거라 중복 판단 보조인 자산 설명보다 나중에 줄인다.
     그래도 넘치면 ValueError(동의한 크기보다 많이 보내지 않는다). 입력은 바꾸지 않는다."""
     sigs = sorted(signals, key=lambda s: -_score(s))
     inv = dict(inventory)
     if _size(sigs, inv) > max_bytes and inv.get("memory"):
         inv["memory"] = []
-    while len(sigs) > 1 and _size(sigs, inv) > max_bytes:
-        sigs = sigs[:-1]
     for key in ("plugins", "commands", "agents", "skills", "rules"):
         if _size(sigs, inv) <= max_bytes:
             break
         if isinstance(inv.get(key), list):
             inv[key] = [{**e, "description": ""} if isinstance(e, dict) else e for e in inv[key]]
+    while len(sigs) > 1 and _size(sigs, inv) > max_bytes:
+        sigs = sigs[:-1]
     if _size(sigs, inv) > max_bytes:
         raise ValueError(f"judge input exceeds the maximum size of {max_bytes} bytes")
     return {"signals": sigs, "inventory": inv}

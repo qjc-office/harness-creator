@@ -185,3 +185,12 @@ def test_script_name_keeps_plain_names():
     from hc.inventory import _script_name
     assert _script_name("bash ~/hooks/guard-x.sh") == "guard-x.sh"
     assert _script_name("notify") == "notify"
+
+def test_fit_input_drops_descriptions_before_signals():
+    # 자산 설명은 중복 판단 보조라 신호(판정의 근거)보다 먼저 줄인다
+    sigs = [{"id": f"s{i}", "count": i, "sessions": ["a"], "samples": ["x" * 50]} for i in range(1, 4)]
+    inv = {"rules": [{"path": f"rules/r{i}.md", "name": f"r{i}", "description": "d" * 300} for i in range(3)]}
+    full = len(json.dumps({"signals": sigs, "inventory": inv}).encode())
+    out = fit_input(sigs, inv, full - 500)
+    assert [s["id"] for s in out["signals"]] == ["s3", "s2", "s1"]
+    assert all(r["description"] == "" for r in out["inventory"]["rules"])
