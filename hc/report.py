@@ -70,15 +70,17 @@ def incomplete_reasons(stats, lang: str = "ko") -> list:
         out.append(R["reason_unknown"].format(f"{ratio:.1%}"))
     return out
 
-def _warnings(stats: dict, R: dict, cfg: dict) -> list:
+def _warnings(stats: dict, R: dict, cfg: dict, use_config: bool = True) -> list:
+    """리포트 머리 경고. use_config=False(실패 리포트)면 설정에 기대는 경고(모르는 타입 비율·하한)는 건너뛰고
+    통계만으로 계산되는 경고(추가 가림 목록 없음·통계 손상·파싱 실패·깨진 레코드)만 낸다."""
     out = []
     ratio = _unknown_ratio(stats)
-    if ratio is not None and ratio > _warn_ratio(cfg):
+    if use_config and ratio is not None and ratio > _warn_ratio(cfg):
         out.append("\n" + R["warn_unknown"].format(ratio=f"{ratio:.1%}"))
     no_lexicon = isinstance(stats, dict) and stats.get("lexicon") is False
     if no_lexicon:
         out.append("\n" + R["no_extra_redaction"])
-    terms, floor = (0 if no_lexicon else _count(stats, "lexicon_terms")), _floor(cfg)
+    terms, floor = (0 if no_lexicon else _count(stats, "lexicon_terms")), (_floor(cfg) if use_config else 0)
     if floor and terms is not None and terms < floor:
         out.append("\n" + R["warn_thin"].format(terms=terms, floor=floor))
     if stats_corrupt(stats):
@@ -177,8 +179,8 @@ def render(candidates, stats, signals_count, error, scope=None, *, lang="ko", ga
         head.append(title)
         head.append(f"\n{seen}")
     failed = bool(error or error_kind)
-    if not failed:   # 실패 리포트는 설정에 기대는 경고를 건너뛴다(설정이 깨져도 첫 줄은 써야 한다)
-        head.extend(_warnings(stats, R, cfg))
+    # 실패 리포트는 설정에 기대는 경고만 건너뛴다(설정이 깨져도 첫 줄은 써야 한다). 통계 경고는 그대로 낸다
+    head.extend(_warnings(stats, R, cfg, use_config=not failed))
     body = []
     if not failed:
         for c in _items(candidates):

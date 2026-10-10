@@ -83,6 +83,24 @@ def test_broken_config_error_path_still_writes_first_line(cache, kind):
     assert "수집 실패 rc=3" in md
 
 @pytest.mark.parametrize("kind", KINDS)
+def test_failed_report_keeps_stats_warnings_skips_config_ones(cache, kind):
+    """실패 리포트도 통계만으로 계산되는 경고는 낸다. 설정에 기대는 경고(하한·모르는 타입 비율)는 건너뛴다."""
+    _broken_config(cache, kind)
+    st = {**ST, "lexicon": False, "errors": 1, "malformed": 2, "unknown": 50}
+    md = render(None, st, 0, "rc=3", lang="ko", error_kind="collect")
+    assert md.splitlines()[0] == "# harness-creator 리포트: 실패"
+    assert "> 추가 가림 목록 없음." in md and "> 경고: 파싱 실패 파일 1개." in md and "깨진 레코드 2줄" in md
+    assert "하한" not in md and "모르는 레코드 타입 비율" not in md
+    md2 = render(None, {**ST, "errors": "x"}, 0, "rc=3", lang="ko", error_kind="collect")
+    assert "수집 통계 손상" in md2
+
+def test_failed_report_skips_floor_even_with_valid_config(cache):
+    from hc.config import save_user_config
+    save_user_config({"redact": {"lexicon_min_terms": 10}})
+    md = render(None, {**ST, "lexicon_terms": 3}, 0, "rc=3", lang="ko", error_kind="collect")
+    assert "하한" not in md
+
+@pytest.mark.parametrize("kind", KINDS)
 def test_broken_config_normal_path_uses_defaults(cache, kind):
     _broken_config(cache, kind)
     md = render({"candidates": [C]}, {**ST, "lexicon_terms": 3}, 1, None, lang="ko")

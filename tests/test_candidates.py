@@ -55,8 +55,6 @@ def test_parse_errors_warning_on_top():
     md = render({"candidates": [cand()]}, _stats(errors=2), 1, None)
     assert "> 경고: 파싱 실패 파일 2개." in md.split("\n## ")[0]
 
-@pytest.mark.xfail(strict=True, reason="Task 7(76405da) render가 실패 리포트에서 경고를 모두 건너뜀. "
-                   "v1은 실패 리포트에도 사전 없음·파싱 실패 경고를 냈다. 컨트롤러 판정 대기(Task 8 보고서)")
 def test_warnings_on_top_of_failed_report():
     md = render(None, _stats(lexicon=False, errors=1), 0, "검증 실패: form")
     assert LEX_WARN in md and "> 경고: 파싱 실패 파일 1개." in md
