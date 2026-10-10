@@ -142,7 +142,7 @@ def test_propose_input_over_limit_rc3_writes_nothing(cache):
     (cache / "config.json").write_text(json.dumps({"judge": {"max_input_bytes": 500}}))
     r = run(cache, "propose-input")
     assert r.returncode == 3 and "Traceback" not in r.stderr and r.stdout.strip() == ""
-    assert "최대 크기" in r.stderr
+    assert "maximum size" in r.stderr
 
 def test_propose_input_samples_identical_to_signal_file_so_quotes_validate(cache, tmp_path):
     # 판정 입력의 samples는 신호 파일 그대로여야 한다(propose-input은 다시 가리거나 바꾸지 않는다).

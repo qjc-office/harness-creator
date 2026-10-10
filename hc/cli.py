@@ -91,21 +91,21 @@ def _wrap_argv(cfg: dict) -> list:
     run = cfg.get("run")
     wrap = run.get("wrap") if isinstance(run, dict) else None
     if not isinstance(wrap, list) or not all(isinstance(x, str) and x and "\0" not in x for x in wrap):
-        raise ConfigError(f"run.wrap은 문자열 목록이어야 한다(빈 문자열·NUL 금지): {wrap!r}")
+        raise ConfigError(f"run.wrap must be a list of strings (no empty strings or NUL): {wrap!r}")
     return [str(expand(x)) if x.startswith("~") else x for x in wrap]
 
 def _judge_argv(cfg: dict) -> list:
     """judge-argv 세 줄(claude 경로, 모델, 시간 제한 초). 줄 구분이라 값에 줄바꿈이 있으면 안 된다."""
     j = cfg.get("judge")
     if not isinstance(j, dict):
-        raise ConfigError(f"judge는 객체여야 한다: {j!r}")
+        raise ConfigError(f"judge must be an object: {j!r}")
     binp, model, to = j.get("claude_bin") or "", j.get("model"), j.get("timeout_s")
     if not isinstance(binp, str) or "\n" in binp or "\0" in binp:
-        raise ConfigError(f"judge.claude_bin은 한 줄 문자열이어야 한다: {binp!r}")
+        raise ConfigError(f"judge.claude_bin must be a one-line string: {binp!r}")
     if not isinstance(model, str) or not model or "\n" in model or "\0" in model:
-        raise ConfigError(f"judge.model은 비지 않은 한 줄 문자열이어야 한다: {model!r}")
+        raise ConfigError(f"judge.model must be a non-empty one-line string: {model!r}")
     if not isinstance(to, int) or isinstance(to, bool) or to <= 0:
-        raise ConfigError(f"judge.timeout_s는 양의 정수여야 한다: {to!r}")
+        raise ConfigError(f"judge.timeout_s must be a positive integer: {to!r}")
     return [str(expand(binp)) if binp else (shutil.which("claude") or ""), model, str(to)]
 
 def main(argv=None) -> int:
@@ -133,7 +133,7 @@ def main(argv=None) -> int:
     try:
         return _dispatch(a)
     except ConfigError as e:
-        print(f"설정 오류: {e}", file=sys.stderr)
+        print(f"config error: {e}", file=sys.stderr)
         return 6
 
 def _dispatch(a) -> int:
@@ -166,21 +166,21 @@ def _dispatch(a) -> int:
         print("\n".join(_judge_argv(cfg))); return 0
     if a.cmd == "collect":
         if not cfg.get("consent"):
-            print("동의 기록 없음: 수집하지 않는다", file=sys.stderr); return 5
+            print("no consent recorded: not collecting", file=sys.stderr); return 5
         from hc.collect import collect
         try:
             st = collect(a.days or cfg["days"])
         except RedactError as e:
-            print(f"가림 실패, 수집 중단: {e}", file=sys.stderr); return 3
+            print(f"masking failed, collection stopped: {e}", file=sys.stderr); return 3
         print(json.dumps(st.__dict__, ensure_ascii=False)); return 0
     if a.cmd == "detect":
         from hc.detect import EventLimitError, run_detect
         try:
             print(run_detect(a.days or cfg["days"]))
         except EventLimitError as e:
-            print(f"탐지 중단: {e}", file=sys.stderr); return 3
+            print(f"detection stopped: {e}", file=sys.stderr); return 3
         except RedactError as e:
-            print(f"가림 실패, 신호 파일을 쓰지 않음: {e}", file=sys.stderr); return 3
+            print(f"masking failed, signal file not written: {e}", file=sys.stderr); return 3
         return 0
     if a.cmd == "signal-count":
         sigs = _signals_doc().get("signals")
@@ -195,9 +195,9 @@ def _dispatch(a) -> int:
             inv = build(claude_home(), claude_home() / "plugins" / "installed_plugins.json", redactor=from_config(cfg))
             payload = fit_input(signals, inv, cfg["judge"]["max_input_bytes"])
         except RedactError as e:
-            print(f"가림 실패, 판정 입력 생성 중단: {e}", file=sys.stderr); return 3
+            print(f"masking failed, judge input not built: {e}", file=sys.stderr); return 3
         except ValueError as e:
-            print(f"판정 입력 생성 중단: {e}", file=sys.stderr); return 3
+            print(f"judge input not built: {e}", file=sys.stderr); return 3
         out = data_dir() / "reports"; out.mkdir(exist_ok=True)
         path = out / f"{_today()}.input.json"
         write_private(path, json.dumps(payload, ensure_ascii=False))
@@ -208,7 +208,7 @@ def _dispatch(a) -> int:
         try:
             data = json.loads(open(a.path, encoding="utf-8").read())
         except (OSError, ValueError) as e:
-            print(f"읽기 실패: {e}", file=sys.stderr); return 2
+            print(f"read failed: {e}", file=sys.stderr); return 2
         top, each = check_each(data, _signals_doc().get("signals", []))
         for e in top + [e for _, errs in each for e in errs]:
             print(e, file=sys.stderr)
@@ -229,7 +229,7 @@ def _dispatch(a) -> int:
         try:
             data = json.loads(open(a.path, encoding="utf-8").read())
         except (OSError, ValueError) as e:
-            print(f"읽기 실패: {e}", file=sys.stderr); return 2
+            print(f"read failed: {e}", file=sys.stderr); return 2
         keep, codex, filtered = gate_candidates(data.get("candidates", []), _signals_doc().get("signals", []),
                                                 cfg, claude_home())
         filtered = [{"gate": "invalid", **x} for x in data.get("invalid") or [] if isinstance(x, dict)] + filtered
@@ -270,7 +270,7 @@ def _dispatch(a) -> int:
         try:
             write_private(path, md)
         except OSError as e:          # 같은 날짜 .md가 디렉터리인 경우 등. 트레이스백 대신 사유와 rc 1
-            print(f"리포트 쓰기 실패: {e}", file=sys.stderr); return 1
+            print(f"report write failed: {e}", file=sys.stderr); return 1
         print(path); return 0
     if a.cmd == "stats-check":
         from hc.report import incomplete_reasons, stats_corrupt
@@ -300,7 +300,7 @@ def _dispatch(a) -> int:
         print(json.dumps(active_applied(), ensure_ascii=False, indent=1)); return 0
     if a.cmd == "forget":
         if _lock_running():
-            print("분석이 실행 중이라 지우지 않는다", file=sys.stderr); return 75
+            print("analysis is running, not deleting", file=sys.stderr); return 75
         root = data_dir()
         for name in _FORGET_DELETE:
             p = root / name
@@ -327,6 +327,6 @@ def _apply_cmd(a) -> int:
         else:
             print(json.dumps(A.undo(a.id, force=a.force), ensure_ascii=False, indent=1))
     except (A.ApplyError, OSError, ValueError) as e:
-        print(f"적용 오류: {e}", file=sys.stderr)
+        print(f"apply error: {e}", file=sys.stderr)
         return 7
     return 0

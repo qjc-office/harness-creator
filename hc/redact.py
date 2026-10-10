@@ -167,37 +167,37 @@ def _read(path, what):
     try:
         return json.loads(p.read_text(encoding="utf-8")), p
     except (OSError, ValueError) as e:
-        raise RedactError(f"{what} 읽기 실패: {p}: {e}") from e
+        raise RedactError(f"cannot read {what}: {p}: {e}") from e
 
 def _load_lexicon(path) -> list:
-    d, p = _read(path, "가림 단어 목록")
+    d, p = _read(path, "mask word list")
     if isinstance(d, list):
         items = d
     elif isinstance(d, dict):
         if not all(isinstance(v, list) for v in d.values()):
-            raise RedactError(f"가림 단어 목록 객체의 값은 문자열 목록이어야 한다: {p}")
+            raise RedactError(f"values of a mask word list object must be lists of strings: {p}")
         items = [t for v in d.values() for t in v]
     else:
-        raise RedactError(f"가림 단어 목록 형식 이상(목록 또는 객체): {p}")
+        raise RedactError(f"mask word list must be a list or an object: {p}")
     if not all(isinstance(t, str) for t in items):
-        raise RedactError(f"가림 단어 목록에 문자열이 아닌 값: {p}")
+        raise RedactError(f"mask word list holds a non-string value: {p}")
     return [t.strip() for t in items if len(t.strip()) >= 2]
 
 def _load_patterns(path) -> list:
-    d, p = _read(path, "가림 정규식 파일")
+    d, p = _read(path, "mask regex file")
     pats = d.get("patterns") if isinstance(d, dict) else None
     if not isinstance(pats, list) or not pats:
-        raise RedactError(f"가림 정규식 파일에 patterns 목록이 없거나 비었다: {p}")
+        raise RedactError(f"mask regex file has no patterns list or it is empty: {p}")
     out = []
     for e in pats:
         if not (isinstance(e, dict) and isinstance(e.get("label"), str) and _LABEL.match(e["label"])
                 and isinstance(e.get("regex"), str) and e["regex"]
                 and isinstance(e.get("whole", False), bool) and isinstance(e.get("flags", ""), str)):
-            raise RedactError(f"가림 정규식 항목 형식 이상: {p}: {e!r}")
+            raise RedactError(f"malformed mask regex entry: {p}: {e!r}")
         try:
             rx = re.compile(e["regex"], re.I if "i" in e.get("flags", "") else 0)
         except re.error as err:
-            raise RedactError(f"가림 정규식 컴파일 실패: {p}: {err}") from err
+            raise RedactError(f"mask regex does not compile: {p}: {err}") from err
         out.append((e["label"], rx, e.get("whole", False)))
     return out
 

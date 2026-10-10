@@ -41,6 +41,6 @@ def append_line(path, data: bytes) -> None:
                     data = b"\n" + data
         n = os.write(fd, data)
         if n != len(data):
-            raise OSError(f"기록이 일부만 쓰였다({n}/{len(data)}바이트)")
+            raise OSError(f"partial write ({n}/{len(data)} bytes)")
     finally:
         os.close(fd)

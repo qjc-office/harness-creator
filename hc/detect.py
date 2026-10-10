@@ -65,7 +65,7 @@ def load_events(days: int, now: float | None = None, max_events: int | None = No
                         continue
                     seen.add(h)
                     if len(seen) > cap:
-                        raise EventLimitError(f"이벤트 상한 초과: 고유 줄 {cap}개를 넘음({f.name})")
+                        raise EventLimitError(f"event limit exceeded: more than {cap} unique lines ({f.name})")
                     try:
                         e = loads(l)
                     except (ValueError, TypeError):

@@ -125,7 +125,7 @@ def test_sessions_must_be_positive_int(s):
 
 def test_duplicate_ids_rejected():
     errs = validate({"candidates": [vcand(), vcand()]}, SIG)
-    assert any("중복" in e and "hc-2026-10-09-01" in e for e in errs)
+    assert any("duplicate" in e and "hc-2026-10-09-01" in e for e in errs)
 
 def test_render_none_without_error_is_failure():
     md = render(None, _stats(), 0, None)
@@ -139,7 +139,7 @@ def test_render_survives_malformed_candidate():
 def test_decide_unknown_id_raises_value_error(cache):
     (cache / "reports").mkdir(parents=True)
     (cache / "reports" / "2026-10-09.candidates.json").write_text(json.dumps({"candidates": [cand()]}))
-    with pytest.raises(ValueError, match="후보 id 없음: hc-404"):
+    with pytest.raises(ValueError, match="no such candidate id: hc-404"):
         decide("hc-404", "approve", "r")
 
 def test_pending_skips_broken_decision_line(cache):
@@ -411,7 +411,7 @@ def test_corrupt_stats_warning_in_header():
 # --- 후보 id·date_range도 전체 일치(끝 개행 거부) ---
 @pytest.mark.parametrize("cid", ["hc-2026-10-09-01\n", "hc-2026-10-09-01\r", "hc-2026-10-09-01\x00"])
 def test_candidate_id_trailing_control_rejected(cid):
-    assert any("id 형식" in e for e in _errs(id=cid))
+    assert any("id not in" in e for e in _errs(id=cid))
 
 @pytest.mark.parametrize("dr", ["2026-10-01..2026-10-07\n", "2026-10-01..2026-10-07\t"])
 def test_date_range_trailing_control_rejected(dr):

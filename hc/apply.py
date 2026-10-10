@@ -85,7 +85,7 @@ def _alternatives(glob: str, limit: int = 64) -> list:
         else:
             out += g.split(",")
         if len(todo) + len(out) > limit:
-            raise ApplyError(f"승인 paths 의 중괄호·쉼표 대안이 너무 많다: {glob!r}")
+            raise ApplyError(f"too many brace/comma alternatives in approved paths: {glob!r}")
     return out
 
 def _universal(glob: str) -> bool:
@@ -102,12 +102,12 @@ def _approved_paths(c: dict):
         return None
     paths = (c.get("proposed_change") or {}).get("paths")
     if not (isinstance(paths, list) and paths and all(isinstance(g, str) and g.strip() for g in paths)):
-        raise ApplyError("상시 로드(global_rule)가 아닌 rule 후보인데 승인된 proposed_change.paths 가 없다")
+        raise ApplyError("rule candidate is not global_rule but has no approved proposed_change.paths")
     bad = [g for g in paths if _fm_value(g) is None]
     if bad:
-        raise ApplyError(f"승인 paths 에 frontmatter 로 쓸 수 없는 값(`---`·제어 문자·앞뒤 공백): {bad!r}")
+        raise ApplyError(f"approved paths hold a value that cannot go into frontmatter (`---`, control characters, leading/trailing spaces): {bad!r}")
     if any(_universal(g) for g in paths):
-        raise ApplyError("승인 paths 가 모든 파일(`**` 등)을 덮어 상시 로드와 같다. global_rule 후보로 다시 낸다")
+        raise ApplyError("approved paths match every file (`**` etc.), same as always loaded; propose it as a global_rule candidate instead")
     return list(dict.fromkeys(paths))
 
 def _split_draft(text: str):
@@ -120,7 +120,7 @@ def _split_draft(text: str):
     for i in range(1, len(lines)):
         if lines[i].rstrip() == "---":
             return lines[1:i], "\n".join(lines[i + 1:])
-    raise ApplyError("초안 frontmatter 의 닫는 '---' 줄이 없다")
+    raise ApplyError("draft frontmatter has no closing '---' line")
 
 def _make_fm(form: str, c: dict, fm_lines, paths, marked: bool) -> str:
     """고정 키만으로 frontmatter 블록을 만든다. name·description 은 초안 값(단순 판독)이 쓸 수 있으면 그것, 아니면 후보 제목."""
@@ -130,14 +130,14 @@ def _make_fm(form: str, c: dict, fm_lines, paths, marked: bool) -> str:
     for k in (("name", "description") if form == "skill" else ("description",)):
         v = _fm_value(got.get(k)) or _fm_value(title)
         if v is None:
-            raise ApplyError(f"frontmatter {k} 로 쓸 값이 없다(초안 값도 후보 제목도 비었거나 `---`·제어 문자 포함)")
+            raise ApplyError(f"no usable value for frontmatter {k} (draft value and candidate title are empty or contain `---` or control characters)")
         out.append(f"{k}: {v}")
     if paths:
         out += ["paths:"] + [f"  - {_fm_value(g)}" for g in paths]
     if marked:
         cid = _fm_value(c.get("id"))
         if cid is None:
-            raise ApplyError("후보 id 를 frontmatter 에 쓸 수 없다")
+            raise ApplyError("candidate id cannot be written to frontmatter")
         out += [MARK, f"generated_at: {json.dumps(time.strftime('%Y-%m-%d', time.localtime(now())))}", f"candidate_id: {cid}"]
     return "\n".join(out) + "\n---\n"
 
@@ -160,18 +160,18 @@ def _resolve(rel: str) -> pathlib.Path:
     logical = pathlib.Path(os.path.abspath(str(claude_home() / rel)))
     real = pathlib.Path(os.path.realpath(str(logical)))
     if not _under(str(real), _boundary()):
-        raise ApplyError(f"링크를 따라간 실제 위치가 홈 밖이라 쓰지 않는다: {rel} -> {real}")
+        raise ApplyError(f"symlink resolves outside the home folder, not writing: {rel} -> {real}")
     if real.name != logical.name:
-        raise ApplyError(f"파일 심링크가 다른 이름의 파일을 가리킨다(쓰지 않음): {rel} -> {real}")
+        raise ApplyError(f"file symlink points to a file with another name, not writing: {rel} -> {real}")
     if os.path.lexists(str(real)) and not real.is_file():
-        raise ApplyError(f"일반 파일이 아니다: {rel} -> {real}")
+        raise ApplyError(f"not a regular file: {rel} -> {real}")
     return real
 
 def _target(form, rel) -> pathlib.Path:
     if form not in _PATHS:
-        raise ApplyError(f"자동 적용 대상 아님: {form!r} (rule·skill·hook만 쓴다)")
+        raise ApplyError(f"not auto-applicable: {form!r} (only rule, skill and hook are written)")
     if not (isinstance(rel, str) and _PATHS[form].fullmatch(rel)):
-        raise ApplyError(f"허용 경로 밖: {rel!r}")
+        raise ApplyError(f"path not allowed: {rel!r}")
     return _resolve(rel)
 
 def _hook_command(rel: str) -> str:
@@ -235,9 +235,9 @@ def _load_settings(p: pathlib.Path) -> dict:
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise ApplyError(f"settings.json 을 읽지 못함(손대지 않음): {p}: {e}") from e
+        raise ApplyError(f"cannot read settings.json (left untouched): {p}: {e}") from e
     if not isinstance(d, dict) or not isinstance(d.get("hooks", {}), dict):
-        raise ApplyError(f"settings.json 최상위·hooks 가 객체가 아님(손대지 않음): {p}")
+        raise ApplyError(f"settings.json top level or hooks is not an object (left untouched): {p}")
     return d
 
 def _add_hook(s: dict, st: dict) -> dict:
@@ -278,13 +278,13 @@ def _active(cid: str):
 def _hook_spec(draft: dict, rel: str) -> dict:
     h = draft.get("hook") if isinstance(draft.get("hook"), dict) else {}
     if h.get("event") not in HOOK_EVENTS:
-        raise ApplyError(f"hook.event 허용값 밖: {h.get('event')!r}")
+        raise ApplyError(f"hook.event not allowed: {h.get('event')!r}")
     matcher = h.get("matcher", "")
     if not isinstance(matcher, str):
-        raise ApplyError("hook.matcher 는 문자열이어야 한다")
+        raise ApplyError("hook.matcher must be a string")
     timeout = h.get("timeout", 30)
     if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 600:
-        raise ApplyError(f"hook.timeout 은 1~600 정수여야 한다: {timeout!r}")
+        raise ApplyError(f"hook.timeout must be an integer from 1 to 600: {timeout!r}")
     sp = _resolve("settings.json")
     return {"real": str(sp), "exists": sp.exists(), "sha_before": _sha(sp), "event": h["event"],
             "matcher": matcher, "command": _hook_command(rel), "timeout": timeout}
@@ -300,35 +300,35 @@ def _hook_settings_diff(draft: dict, rel: str):
 def _build(draft) -> dict:
     """초안을 검사하고 쓸 내용을 계산한다. 아무것도 쓰지 않는다. plan·write 가 같은 함수로 계산한다."""
     if not isinstance(draft, dict):
-        raise ApplyError("초안은 JSON 객체여야 한다")
+        raise ApplyError("draft must be a JSON object")
     cid, form, rel, content = draft.get("candidate_id"), draft.get("form"), draft.get("path"), draft.get("content")
     if form not in _PATHS:
-        raise ApplyError(f"자동 적용 대상 아님: {form!r} (rule·skill·hook만 쓴다)")
+        raise ApplyError(f"not auto-applicable: {form!r} (only rule, skill and hook are written)")
     if not (isinstance(rel, str) and _PATHS[form].fullmatch(rel)):
-        raise ApplyError(f"허용 경로 밖: {rel!r}")
+        raise ApplyError(f"path not allowed: {rel!r}")
     if not isinstance(content, str) or not content.strip():
-        raise ApplyError("content 가 비었다")
+        raise ApplyError("content is empty")
     c = find_candidate(cid) if isinstance(cid, str) else None
     if c is None:
-        raise ApplyError(f"최신 후보에 없는 id: {cid!r}")
+        raise ApplyError(f"id not in the latest candidates: {cid!r}")
     if c.get("form") != form or (c.get("proposed_change") or {}).get("path") != rel:
-        raise ApplyError("초안의 형태·경로가 후보와 다르다")
+        raise ApplyError("draft form or path differs from the candidate")
     if not is_approved(c):
-        raise ApplyError(f"승인 기록이 없는 후보: {cid}")
+        raise ApplyError(f"candidate not approved: {cid}")
     if form == "hook" and rel != f"hooks/harness-creator/{cid}.sh":
-        raise ApplyError("hook 경로는 hooks/harness-creator/<후보 id>.sh 여야 한다")
+        raise ApplyError("hook path must be hooks/harness-creator/<candidate id>.sh")
     if _active(cid):
-        raise ApplyError(f"이미 적용된 후보: {cid}. 먼저 undo 한다")
+        raise ApplyError(f"candidate already applied: {cid}. Run undo first")
     real = _target(form, rel)
     exists = real.exists()
     old = real.read_text(encoding="utf-8", errors="replace") if exists else ""
     generated_before = MARK in old
     if exists and (c.get("proposed_change") or {}).get("action") == "create":
-        raise ApplyError(f"후보는 새 파일 만들기(create)인데 이미 파일이 있다: {rel}")
+        raise ApplyError(f"candidate creates a new file but the file exists: {rel}")
     if exists and not generated_before and MARK in content:
-        raise ApplyError("사람이 쓴 파일에 harness-creator 표지를 넣지 않는다")
+        raise ApplyError("will not put the harness-creator marker into a file a person wrote")
     if form == "hook" and not exists and MARK not in content:      # rule·skill 표지는 apply 가 frontmatter 에 넣는다
-        raise ApplyError(f"새 파일에는 '{MARK}' 표지가 있어야 한다")
+        raise ApplyError(f"a new file must contain the '{MARK}' marker")
     paths, block = (_approved_paths(c) if form == "rule" else None), None
     if form != "hook":
         content, block = _render_md(form, c, content, paths, not exists or generated_before)
@@ -373,10 +373,10 @@ def _run_hook(command: str, event: str):
 def _verify_fm(text: str, block) -> list:
     """최종 파일의 첫 frontmatter 가 우리가 만든 바이트 그대로이고, 로더 정규식으로 잘라도 같은 블록인지 본다."""
     if not isinstance(block, str) or not text.startswith(block):
-        return ["frontmatter 가 apply 가 만든 블록과 다르다"]
+        return ["frontmatter differs from the block apply generated"]
     m = LOADER_FM.match(text)
     if not m or m.group(1) != block[len("---\n"):-len("---\n")]:
-        return ["로더 정규식으로 자른 frontmatter 가 apply 가 만든 블록과 다르다"]
+        return ["frontmatter as cut by the loader differs from the block apply generated"]
     return []
 
 def _verify_file(p: dict) -> list:
@@ -390,24 +390,24 @@ def _verify_file(p: dict) -> list:
         st = p["settings"]
         rc, out = _run_hook(st["command"], st["event"])
         if rc is None:
-            return errs + [f"훅이 {HOOK_TIMEOUT}초 안에 끝나지 않았다"]
+            return errs + [f"hook did not finish within {HOOK_TIMEOUT}s"]
         if rc not in (0, 2):
-            errs.append(f"훅 종료 코드 {rc}(0 또는 2여야 한다)")
+            errs.append(f"hook exit code {rc} (must be 0 or 2)")
         if out.strip():
             try:
                 json.loads(out.strip())
             except ValueError:
-                errs.append("훅 stdout 은 비었거나 JSON 이어야 한다")
+                errs.append("hook stdout must be empty or JSON")
     return errs
 
 def _verify_settings(st: dict) -> list:
     try:
         s = json.loads(pathlib.Path(st["real"]).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        return [f"settings.json 재파싱 실패: {e}"]
+        return [f"settings.json does not parse after writing: {e}"]
     if not any(isinstance(h, dict) and st["command"] == h.get("command")
                for g in (s.get("hooks") or {}).get(st["event"], []) for h in (g.get("hooks") or [])):
-        return ["settings.json 에 훅 항목이 없다"]
+        return ["hook entry missing from settings.json"]
     return []
 
 def _restore(path: pathlib.Path, backup: str, mode: int) -> None:
@@ -489,19 +489,19 @@ def write(candidate_id: str) -> dict:
 def _write(candidate_id: str) -> dict:
     pp = _plans_dir() / f"{candidate_id}.json"
     if not pp.is_file():
-        raise ApplyError(f"plan 없음: 먼저 apply-plan 을 실행한다 ({candidate_id})")
+        raise ApplyError(f"no plan: run apply-plan first ({candidate_id})")
     try:
         saved = json.loads(pp.read_text(encoding="utf-8"))
     except ValueError as e:
-        raise ApplyError(f"plan 파일 손상: {e}") from e
+        raise ApplyError(f"plan file corrupt: {e}") from e
     if not isinstance(saved, dict) or not isinstance(saved.get("draft"), dict):
-        raise ApplyError("plan 파일 형식이 아니다. apply-plan 을 다시 실행한다")
+        raise ApplyError("not a plan file. Run apply-plan again")
     for f in saved.get("files") or []:          # 읽기만 한다(sha). 쓰기 대상은 아래에서 다시 계산한다
         if isinstance(f, dict) and _sha(pathlib.Path(str(f.get("real")))) != f.get("sha_before"):
-            raise ApplyError(f"plan 뒤에 파일이 바뀌었다: {f.get('rel')}. apply-plan 을 다시 실행한다")
+            raise ApplyError(f"file changed after plan: {f.get('rel')}. Run apply-plan again")
     p = _build(saved["draft"])                   # 승인·허용 경로·심링크 해석을 처음부터 다시 검사한다
     if p["candidate_id"] != candidate_id or any(p[k] != saved.get(k) for k in _SAME):
-        raise ApplyError("plan 뒤에 대상·경로·settings 가 바뀌었다(또는 plan 이 손상됐다). apply-plan 을 다시 실행한다")
+        raise ApplyError("target, path or settings changed after plan (or the plan is corrupt). Run apply-plan again")
     bdir = _backup_dir(candidate_id)
     st = p["settings"]
     records, srec = [], None
@@ -521,14 +521,14 @@ def _write(candidate_id: str) -> dict:
             _write_atomic(sp, _settings_text(_add_hook(cur, st)), srec["mode_before"] or 0o600)
             errs = _verify_settings(st)
         if errs:
-            raise ApplyError("검증 실패, 되돌린다: " + "; ".join(errs))
+            raise ApplyError("verification failed, rolled back: " + "; ".join(errs))
         entry = {"candidate_id": candidate_id, "form": p["form"], "signal_ids": p.get("signal_ids", []),
                  "files": records, "settings": srec}
         record_applied(entry)
     except BaseException as exc:
         fails = _rollback(records, srec)
         if fails:
-            raise ApplyError(f"{exc} / 되돌리기 일부 실패(백업 {bdir} 에서 손으로 복구): " + "; ".join(fails)) from exc
+            raise ApplyError(f"{exc} / rollback partly failed (restore by hand from backup {bdir}): " + "; ".join(fails)) from exc
         raise
     try:
         pp.unlink()
@@ -539,26 +539,26 @@ def _write(candidate_id: str) -> dict:
 def _check_undo_record(form, r, broot: str, force: bool) -> None:
     """원장(applied.jsonl)은 세션이 고칠 수 있어 그대로 믿지 않는다. 하나라도 걸리면 undo 전체를 거부한다."""
     if not isinstance(r, dict):
-        raise ApplyError("적용 기록 형식이 아니다(원장 손상). 손으로 확인한다")
+        raise ApplyError("applied record is malformed (ledger corrupt). Check by hand")
     if str(_target(form, r.get("rel"))) != r.get("real"):
-        raise ApplyError(f"적용 뒤 실제 위치(심링크)가 바뀌었다: {r.get('rel')}. 손으로 확인한다")
+        raise ApplyError(f"real location (symlink) changed after apply: {r.get('rel')}. Check by hand")
     if not isinstance(r.get("sha_after"), str):
-        raise ApplyError(f"적용 기록에 sha_after 가 없다(원장 손상): {r.get('rel')}. 손으로 확인한다")
+        raise ApplyError(f"applied record has no sha_after (ledger corrupt): {r.get('rel')}. Check by hand")
     real = pathlib.Path(r["real"])
     if not r.get("created"):
         b = r.get("backup")
         if not (isinstance(b, str) and os.path.realpath(b) == os.path.join(broot, _backup_name(r["rel"]))
                 and os.path.isfile(b)):
-            raise ApplyError(f"백업이 없어 되돌릴 수 없다: {r.get('rel')}")
+            raise ApplyError(f"no backup, cannot undo: {r.get('rel')}")
     if real.exists() and _sha(real) != r["sha_after"] and not force:
-        raise ApplyError(f"적용 뒤 사용자가 고친 파일: {r['rel']}. 확인 후 --force 로 되돌린다")
+        raise ApplyError(f"file was edited after apply: {r['rel']}. Check it, then undo with --force")
     if r.get("created") and real.exists() and MARK not in real.read_text(encoding="utf-8", errors="replace"):
-        raise ApplyError(f"'{MARK}' 표지가 없는 파일은 지우지 않는다(--force 여도): {r.get('rel')}")
+        raise ApplyError(f"a file without the '{MARK}' marker is never deleted (even with --force): {r.get('rel')}")
 
 def undo(candidate_id: str, force: bool = False) -> dict:
     e = _active(candidate_id)
     if e is None:
-        raise ApplyError(f"되돌릴 적용 기록 없음: {candidate_id}")
+        raise ApplyError(f"nothing applied to undo: {candidate_id}")
     files = e.get("files") or []
     broot = os.path.realpath(str(data_dir() / "backups" / candidate_id))
     # 먼저 전부 검사하고, 하나라도 걸리면 아무것도 바꾸지 않는다
@@ -568,7 +568,7 @@ def undo(candidate_id: str, force: bool = False) -> dict:
     if srec:
         sp = _resolve("settings.json")
         if str(sp) != srec.get("real"):
-            raise ApplyError("적용 뒤 settings.json 실제 위치(심링크)가 바뀌었다. 손으로 확인한다")
+            raise ApplyError("settings.json real location (symlink) changed after apply. Check by hand")
         cur = _load_settings(sp) if sp.exists() else None
     for r in reversed(files):
         _undo_record(r)

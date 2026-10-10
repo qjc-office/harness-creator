@@ -54,9 +54,9 @@ def _read_json(path: pathlib.Path, what: str) -> dict:
     try:
         d = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise ConfigError(f"{what} 읽기 실패: {path}: {e}") from e
+        raise ConfigError(f"cannot read {what}: {path}: {e}") from e
     if not isinstance(d, dict):
-        raise ConfigError(f"{what} 최상위가 객체가 아님: {path}")
+        raise ConfigError(f"{what} top level is not an object: {path}")
     return d
 
 def user_config_path() -> pathlib.Path:
@@ -64,7 +64,7 @@ def user_config_path() -> pathlib.Path:
 
 def load_user_config() -> dict:
     p = user_config_path()
-    return _read_json(p, "사용자 설정") if p.exists() else {}
+    return _read_json(p, "user config") if p.exists() else {}
 
 def load_config() -> dict:
     """기본값 < include 파일들(순서대로) < 사용자 config.json. 읽지 못하면 ConfigError."""
@@ -72,8 +72,8 @@ def load_config() -> dict:
     user = load_user_config()
     for inc in user.get("include") or []:
         if not isinstance(inc, str) or not inc:
-            raise ConfigError(f"include 항목이 문자열이 아님: {inc!r}")
-        cfg = _merge(cfg, {k: v for k, v in _read_json(expand(inc), "include 설정").items() if k != "include"})
+            raise ConfigError(f"include entry is not a string: {inc!r}")
+        cfg = _merge(cfg, {k: v for k, v in _read_json(expand(inc), "include config").items() if k != "include"})
     return _merge(cfg, {k: v for k, v in user.items() if k != "include"})
 
 def save_user_config(patch: dict) -> dict:
@@ -94,5 +94,5 @@ def now() -> float:
     try:
         dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
     except ValueError as e:
-        raise ConfigError(f"HC_NOW 형식 오류: {v!r}") from e
+        raise ConfigError(f"bad HC_NOW value: {v!r}") from e
     return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()

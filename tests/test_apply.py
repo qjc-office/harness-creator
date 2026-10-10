@@ -377,7 +377,7 @@ def test_cli_apply_roundtrip(cache, home, tmp_path):
     r = subprocess.run([sys.executable, cli, "undo", CID], capture_output=True, text=True, env=env)
     assert r.returncode == 0 and not (home / "rules" / "x.md").exists()
     r = subprocess.run([sys.executable, cli, "undo", CID], capture_output=True, text=True, env=env)
-    assert r.returncode == 7 and "적용 오류" in r.stderr
+    assert r.returncode == 7 and "apply error" in r.stderr
 
 
 def _rewrite_cands(cache, c):

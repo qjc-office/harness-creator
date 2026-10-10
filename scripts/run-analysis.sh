@@ -12,7 +12,7 @@ umask 077
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CLI=(python3 "$HERE/cli.py")
 [ "${HARNESS_CREATOR_DISABLED:-0}" = "1" ] && exit 0
-DATA="$("${CLI[@]}" where --path 2>/dev/null)" || { echo "harness-creator: 설정 오류(cli where 실패)" >&2; exit 6; }
+DATA="$("${CLI[@]}" where --path 2>/dev/null)" || { echo "harness-creator: config error (cli where failed)" >&2; exit 6; }
 [ -f "$DATA/disabled" ] && exit 0
 mkdir -p "$DATA/logs" "$DATA/reports"
 LOG="$DATA/logs/run.log"
@@ -44,24 +44,24 @@ _hc_dir_age() {
 }
 if ! mkdir "$LOCK" 2>/dev/null; then
   case "$(_hc_lock_state "$LOCK")" in
-    live) _log "이미 실행 중 pid=$(_hc_lock_owner), 이번 실행은 건너뜀"; exit 75 ;;
+    live) _log "already running pid=$(_hc_lock_owner), skipping this run"; exit 75 ;;
     nopid)
-      if [ "$(_hc_dir_age "$LOCK")" -ge 60 ]; then _fail "잠금에 pid 없음: $LOCK 수동 확인 후 삭제"
-      else _log "다른 실행이 잠금을 만드는 중, 이번 실행은 건너뜀"; fi
+      if [ "$(_hc_dir_age "$LOCK")" -ge 60 ]; then _fail "lock without pid: check $LOCK by hand, then delete it"
+      else _log "another run is creating the lock, skipping this run"; fi
       exit 75 ;;
   esac
   STALE="$LOCK.stale.$$"
-  if ! mv "$LOCK" "$STALE" 2>/dev/null; then _log "남은 잠금을 다른 실행이 먼저 회수함"; exit 75; fi
+  if ! mv "$LOCK" "$STALE" 2>/dev/null; then _log "another run reclaimed the stale lock first"; exit 75; fi
   if [ "$(_hc_lock_state "$STALE")" != dead ]; then
-    mv "$STALE" "$LOCK" 2>/dev/null || _log "잠금 되돌리기 실패: $STALE"
-    _log "잠금 회수 경합, 이번 실행은 건너뜀"; exit 75
+    mv "$STALE" "$LOCK" 2>/dev/null || _log "could not restore lock: $STALE"
+    _log "lock reclaim race, skipping this run"; exit 75
   fi
-  _log "남은 잠금 회수 (pid=$(cat "$STALE/pid" 2>/dev/null))"
+  _log "reclaimed stale lock (pid=$(cat "$STALE/pid" 2>/dev/null))"
   rm -rf "${STALE:?}"
-  if ! mkdir "$LOCK" 2>/dev/null; then _log "잠금 회수 중 다른 실행이 먼저 잡음"; exit 75; fi
+  if ! mkdir "$LOCK" 2>/dev/null; then _log "another run took the lock while reclaiming"; exit 75; fi
 fi
 printf '%s\n' "$$" > "$LOCK/pid.tmp.$$" && mv -f "$LOCK/pid.tmp.$$" "$LOCK/pid"
-if [ "$(_hc_lock_owner)" != "$$" ]; then _log "잠금 주인이 바뀜(pid=$(_hc_lock_owner))"; exit 75; fi
+if [ "$(_hc_lock_owner)" != "$$" ]; then _log "lock owner changed (pid=$(_hc_lock_owner))"; exit 75; fi
 _hc_cleanup() {
   rm -f "$PF" "$RAW"
   [ -n "$JCWD" ] && rm -rf "${JCWD:?}"
@@ -70,7 +70,7 @@ _hc_cleanup() {
 trap _hc_cleanup EXIT
 
 if ! "${CLI[@]}" consent-check >> "$LOG" 2>&1; then
-  _render_err consent; _fail "동의 없음"; exit 5
+  _render_err consent; _fail "no consent"; exit 5
 fi
 
 # --- 수집: run.wrap 접두로 감싼다(빈 배열은 bash 3.2 set -u 에서 ${A[@]+...} 로만 펼친다) ---
@@ -80,7 +80,7 @@ if [ "${HC_SKIP_COLLECT:-0}" != "1" ]; then
   WA="$LOCK/wrap-argv"; WE="$LOCK/wrap-argv.err"
   if ! "${CLI[@]}" wrap-argv > "$WA" 2> "$WE"; then
     cat "$WE" >> "$LOG"
-    _render_err collect "$(head -n 1 "$WE")"; _fail "wrap-argv 실패(run.wrap 설정 오류)"; exit 6
+    _render_err collect "$(head -n 1 "$WE")"; _fail "wrap-argv failed (run.wrap config error)"; exit 6
   fi
   WRAP=()
   while IFS= read -r -d '' a; do WRAP+=("$a"); done < "$WA"
@@ -92,24 +92,24 @@ if [ "${HC_SKIP_COLLECT:-0}" != "1" ]; then
   fi
 fi
 if ! "${CLI[@]}" detect >> "$LOG" 2>&1; then
-  _render_err detect; _fail "detect 실패"; exit 1
+  _render_err detect; _fail "detect failed"; exit 1
 fi
 # 신호가 0건이면 판정 모델을 부르지 않는다(보낼 것이 없다). 빈 후보로 검증·거르기·렌더를 그대로 탄다
 NSIG="$("${CLI[@]}" signal-count 2>> "$LOG")"
-case "$NSIG" in ''|*[!0-9]*) _render_err detect; _fail "signal-count 실패"; exit 1 ;; esac
+case "$NSIG" in ''|*[!0-9]*) _render_err detect; _fail "signal-count failed"; exit 1 ;; esac
 
 # 판정 단계(입력 생성 → 시간 제한 실행기 → claude -p → 응답 해석). rc 를 남긴다. 본문은 heredoc 때문에 들여쓰지 않는다
 _hc_judge() {
 INPUT="$("${CLI[@]}" propose-input 2>> "$LOG")"
 if [ ! -f "$INPUT" ]; then
-  _render_err input; _fail "propose-input 실패"; exit 1
+  _render_err input; _fail "propose-input failed"; exit 1
 fi
 LANG_OUT="$("${CLI[@]}" lang 2>> "$LOG")"
 JF="$LOCK/judge-argv"; JE="$LOCK/judge-argv.err"
 if ! "${CLI[@]}" judge-argv > "$JF" 2> "$JE"; then
   cat "$JE" >> "$LOG"
   msg="$(head -n 1 "$JE")"
-  _render_err config "${msg#설정 오류: }"; _fail "judge-argv 실패(judge 설정 오류)"; exit 6
+  _render_err config "${msg#config error: }"; _fail "judge-argv failed (judge config error)"; exit 6
 fi
 JA=()
 while IFS= read -r line; do JA+=("$line"); done < "$JF"
@@ -132,9 +132,9 @@ elif t="$(command -v python3 2>/dev/null)" && [ -n "$t" ] && "$t" -c 'import sub
   TO=("$t" -c "$_HC_TO_PY" "$PROPOSE_TIMEOUT")
 fi
 if [ "${#TO[@]}" -eq 0 ]; then
-  _render_err timeout_runner; _fail "시간 제한 실행기 없음"; exit 1
+  _render_err timeout_runner; _fail "no time limit runner"; exit 1
 fi
-_log "시간 제한 실행기: $(basename "${TO[0]}") ${PROPOSE_TIMEOUT}s"
+_log "time limit runner: $(basename "${TO[0]}") ${PROPOSE_TIMEOUT}s"
 
 rm -f "${JUDGED:?}" "${RAW:?}"
 { sed -e "s#{TODAY}#$TODAY#g" -e "s#{LANG}#$LANG_OUT#g" "$HERE/propose-prompt.md"; cat "$INPUT"; } > "$PF"
@@ -149,7 +149,7 @@ ISO=(-p --output-format json --model "$MODEL" \
   --disallowedTools "Bash,Read,Write,Edit,MultiEdit,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Agent,Task,Skill,TodoWrite,Monitor,SendMessage,Artifact,ArtifactData,ArtifactComments,ToolSearch,EnterWorktree,ExitWorktree,CronCreate,RemoteTrigger,TaskStop,PushNotification,ScheduleWakeup")
 rc=0
 if ! JCWD="$(mktemp -d "${TMPDIR:-/tmp}/hc-judge.XXXXXX")" || [ -z "$JCWD" ]; then
-  JCWD=""; _render_err judge "rc=1"; _fail "판정용 임시 폴더를 만들지 못함"; exit 2
+  JCWD=""; _render_err judge "rc=1"; _fail "could not create a temporary folder for the judge"; exit 2
 fi
 case "$CLAUDE" in ''|/*) ;; *) CLAUDE="$PWD/$CLAUDE" ;; esac
 case "$STUB" in ''|/*) ;; *) STUB="$PWD/$STUB" ;; esac
@@ -159,22 +159,22 @@ if [ -n "$STUB" ]; then
   rc=$?
 else
   if [ -z "$CLAUDE" ] || [ ! -x "$CLAUDE" ]; then
-    _render_err no_claude "${CLAUDE:-PATH}"; _fail "claude 없음: ${CLAUDE:-PATH}"; exit 1
+    _render_err no_claude "${CLAUDE:-PATH}"; _fail "claude not found: ${CLAUDE:-PATH}"; exit 1
   fi
   HELP="$("$CLAUDE" --help 2>&1)"
   case "$HELP" in
     *--restricted*) ;;
-    *) _render_err cli_upgrade; _fail "claude --help 에 --restricted 없음"; exit 1 ;;
+    *) _render_err cli_upgrade; _fail "claude --help has no --restricted"; exit 1 ;;
   esac
   case "$HELP" in
     *--safe-mode*) ;;
-    *) _render_err cli_upgrade; _fail "claude --help 에 --safe-mode 없음"; exit 1 ;;
+    *) _render_err cli_upgrade; _fail "claude --help has no --safe-mode"; exit 1 ;;
   esac
   ( cd "$JCWD" && exec "${TO[@]}" "$CLAUDE" "${ISO[@]}" ) < "$PF" > "$RAW" 2>> "$LOG"
   rc=$?
 fi
 rm -f "${PF:?}"
-[ "$rc" -ne 0 ] && _log "판정 단계 rc=$rc"
+[ "$rc" -ne 0 ] && _log "judge step rc=$rc"
 # 응답이 --output-format json 봉투면 result 문자열을 꺼낸다. 그 안의 첫 '{'~마지막 '}'를 JSON으로 읽어 JUDGED(0600)에 쓴다.
 if [ "$rc" -eq 0 ]; then
   python3 - "$RAW" "$JUDGED" <<'PY' >> "$LOG" 2>&1
@@ -207,28 +207,28 @@ if isinstance(env, list):
             bad = bad or any(m.get(k) for k in m if "memory" in str(k).lower())
             if bad:
                 _write(text)
-                print("판정 격리 위반: init 의 tools·mcp_servers·plugins·memory 가 격리 조건 밖", file=sys.stderr)
+                print("judge isolation violated: init tools, mcp_servers, plugins or memory not isolated", file=sys.stderr)
                 sys.exit(3)
     res = [m for m in env if isinstance(m, dict) and m.get("type") == "result"]
     if not res:
         _write(text)
-        print("판정 응답 배열에 result 없음", file=sys.stderr)
+        print("judge response array has no result", file=sys.stderr)
         sys.exit(1)
     env = res[-1]
 if isinstance(env, dict) and env.get("type") == "result":
     if env.get("is_error"):
         _write(text)
-        print("판정 응답이 오류 봉투", file=sys.stderr)
+        print("judge response is an error envelope", file=sys.stderr)
         sys.exit(1)
     text = env.get("result") if isinstance(env.get("result"), str) else ""
 i, j = text.find("{"), text.rfind("}")
 try:
     if i < 0 or j < i:
-        raise ValueError("응답에 JSON 객체 없음")
+        raise ValueError("no JSON object in the response")
     obj = json.loads(text[i:j + 1])
 except ValueError as e:
     _write(text)
-    print(f"판정 응답 해석 실패: {e}", file=sys.stderr)
+    print(f"cannot parse judge response: {e}", file=sys.stderr)
     sys.exit(1)
 _write(json.dumps(obj, ensure_ascii=False, indent=1))
 PY
@@ -240,7 +240,7 @@ rm -f "${RAW:?}"
 }
 rc=0
 if [ "$NSIG" -eq 0 ]; then
-  _log "신호 0건: 판정 생략"
+  _log "0 signals: judge skipped"
   rm -f "${JUDGED:?}"
   printf '{"candidates": []}\n' > "$JUDGED"
 else
@@ -250,19 +250,19 @@ fi
 if [ "$rc" -ne 0 ] || ! "${CLI[@]}" validate "$JUDGED" >> "$LOG" 2>&1; then
   [ -e "$JUDGED" ] && mv -f "$JUDGED" "${JUDGED%.json}.invalid.json"
   det="rc=$rc"; [ "$rc" -eq 66 ] && det="rc=$rc isolation"
-  _render_err judge "$det"; _fail "propose/validate 실패 $det"; exit 2
+  _render_err judge "$det"; _fail "propose/validate failed $det"; exit 2
 fi
 if ! CANDS="$("${CLI[@]}" gate "$JUDGED" 2>> "$LOG")" || [ ! -f "$CANDS" ]; then
-  _render_err gate; _fail "gate 실패"; exit 2
+  _render_err gate; _fail "gate failed"; exit 2
 fi
 REPORT="$("${CLI[@]}" render --candidates "$CANDS" 2>> "$LOG")"
 rrc=$?
-if [ "$rrc" -ne 0 ] || [ -z "$REPORT" ]; then _fail "render 실패 rc=$rrc"; exit 4; fi
+if [ "$rrc" -ne 0 ] || [ -z "$REPORT" ]; then _fail "render failed rc=$rrc"; exit 4; fi
 SC="$("${CLI[@]}" stats-check 2>> "$LOG")"
 src=$?
 case "$src" in
   0) ;;
-  3) _log "불완전 report=$REPORT"; _fail "incomplete: $SC"; exit 3 ;;
-  *) _log "수집 통계 손상 report=$REPORT"; _fail "collect-stats 손상 (${SC:-?} rc=$src)"; exit 4 ;;
+  3) _log "incomplete report=$REPORT"; _fail "incomplete: $SC"; exit 3 ;;
+  *) _log "collect stats corrupt report=$REPORT"; _fail "collect-stats corrupt (${SC:-?} rc=$src)"; exit 4 ;;
 esac
 _log "OK report=$REPORT"

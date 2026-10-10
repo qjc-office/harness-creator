@@ -216,7 +216,7 @@ def test_corrupt_collect_stats_fails_rc4(tmp_path, text):
     r, reports, today, report = _run(tmp_path, "cat > /dev/null; printf '{\"candidates\": []}'", pre=_stats_raw(text))
     assert r.returncode == 4, r.stderr
     assert "OK report=" not in _runlog(tmp_path)
-    assert "collect-stats 손상" in _runlog(tmp_path)
+    assert "collect-stats corrupt" in _runlog(tmp_path)
     assert "수집 통계 손상" in report.read_text(encoding="utf-8")
 
 # --- 동시 실행 잠금($CACHE/run.lock, mkdir) ---
@@ -247,7 +247,7 @@ def test_live_lock_exits_75_without_touching_anything(tmp_path):
     assert (reports / f"{today}.propose.prompt.txt").exists()       # 남의 임시 파일을 지우지 않는다
     assert (tmp_path / "cache/run.lock/pid").read_text().strip() == str(live)
     assert "OK report=" not in _runlog(tmp_path)
-    assert "이미 실행 중" in _runlog(tmp_path)
+    assert "already running" in _runlog(tmp_path)
 
 @pytest.mark.parametrize("pid", ["dead", "garbage"])
 def test_stale_lock_reclaimed_and_released(tmp_path, pid):
@@ -344,7 +344,7 @@ def test_pidless_old_lock_never_reclaimed_alerts(tmp_path):
     assert lock.is_dir() and list(lock.iterdir()) == []            # 손대지 않았다
     assert time.time() - lock.stat().st_mtime >= 100
     assert not report.exists()
-    assert f"잠금에 pid 없음: {lock} 수동 확인 후 삭제" in _runlog(tmp_path)
+    assert f"lock without pid: check {lock} by hand, then delete it" in _runlog(tmp_path)
 
 @pytest.mark.parametrize("age", [600, 86400])
 def test_pidless_lock_any_age_not_reclaimed(tmp_path, age):
@@ -395,7 +395,7 @@ def test_python_fallback_runs_without_timeout_binaries(tmp_path):
     r, reports, today, report = _run(tmp_path, "sleep 0.2; " + OK_STUB, extra_env={"PATH": path})
     assert r.returncode == 0, r.stderr
     assert "후보 없음" in _first_line(report)
-    assert "시간 제한 실행기: python3" in _runlog(tmp_path)
+    assert "time limit runner: python3" in _runlog(tmp_path)
 
 def test_python_fallback_passes_stdin_through(tmp_path):
     path = _no_timeout_path(tmp_path)
@@ -560,7 +560,7 @@ def test_verbose_array_init_not_isolated_fails(tmp_path, init):
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 2 and "실패" in _first_line(report)
     assert "isolation" in report.read_text(encoding="utf-8")
-    assert "격리 위반" in _runlog(tmp_path)
+    assert "isolation violated" in _runlog(tmp_path)
     assert not (reports / f"{today}.judged.json").exists()
 
 def test_verbose_array_envelope_is_error_fails(tmp_path):
@@ -570,7 +570,7 @@ def test_verbose_array_envelope_is_error_fails(tmp_path):
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 2 and "실패" in _first_line(report)
     text = report.read_text(encoding="utf-8")
-    assert "rc=65" in text and "isolation" not in text and "오류 봉투" in _runlog(tmp_path)
+    assert "rc=65" in text and "isolation" not in text and "error envelope" in _runlog(tmp_path)
 
 def test_verbose_array_without_result_fails(tmp_path):
     body = _array_stub(tmp_path, [{"type": "system", "subtype": "init", "tools": [], "mcp_servers": []},
@@ -578,7 +578,7 @@ def test_verbose_array_without_result_fails(tmp_path):
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 2 and "실패" in _first_line(report)
     text = report.read_text(encoding="utf-8")
-    assert "rc=65" in text and "isolation" not in text and "result 없음" in _runlog(tmp_path)
+    assert "rc=65" in text and "isolation" not in text and "has no result" in _runlog(tmp_path)
 
 def test_no_consent_fails_rc5(tmp_path):
     def pre(cache):
@@ -617,7 +617,7 @@ def test_input_over_limit_renders_failure_without_calling_model(tmp_path):
     assert r.returncode == 1, r.stderr
     assert "실패" in _first_line(report) and "판정 입력 생성 실패" in report.read_text(encoding="utf-8")
     assert not marker.exists() and not list(reports.glob("*.input.json"))
-    assert "최대 크기" in _runlog(tmp_path)
+    assert "maximum size" in _runlog(tmp_path)
 
 def test_report_language_from_signal_scope_when_config_lang_unset(tmp_path):
     # config.lang이 없으면 탐지 scope.lang(빈 탐지는 en)으로 리포트를 쓴다
@@ -711,7 +711,7 @@ def test_verbose_array_init_plugins_or_memory_fails(tmp_path, extra):
     body = _array_stub(tmp_path, [init, {"type": "result", "is_error": False, "result": "{\"candidates\": []}"}])
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 2 and "isolation" in report.read_text(encoding="utf-8")
-    assert "격리 위반" in _runlog(tmp_path)
+    assert "isolation violated" in _runlog(tmp_path)
 
 def test_verbose_array_init_builtin_plugins_only_passes(tmp_path):
     # 2.1.296 --safe-mode 실측 형태: 내장 플러그인만, memory 필드 없음
@@ -737,7 +737,7 @@ def _gnu_stat_path(tmp_path):
 def test_pidless_old_lock_alerts_with_gnu_stat(tmp_path):
     r, *_ = _run(tmp_path, OK_STUB, pre=_aged(120), extra_env={"PATH": _gnu_stat_path(tmp_path)})
     assert r.returncode == 75
-    assert "잠금에 pid 없음" in _runlog(tmp_path)
+    assert "lock without pid" in _runlog(tmp_path)
 
 
 # --- 신호 0건이면 판정 모델을 부르지 않고 빈 후보로 렌더한다 ---
@@ -747,7 +747,7 @@ def test_zero_signals_skips_judge(tmp_path):
     assert r.returncode == 0, r.stderr + _runlog(tmp_path)
     assert not marker.exists()
     assert _first_line(report) == "# harness-creator 리포트: 후보 없음"
-    assert "판정 생략" in _runlog(tmp_path) and "OK report=" in _runlog(tmp_path)
+    assert "judge skipped" in _runlog(tmp_path) and "OK report=" in _runlog(tmp_path)
     assert not list(reports.glob("*.input.json"))
 
 def test_zero_signals_without_claude_still_ok(tmp_path):

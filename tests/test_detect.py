@@ -182,7 +182,7 @@ def test_cli_detect_cap_exceeded_rc_nonzero(cache):
     _evfile(cache, [dumps(ev(s, now, "user_msg", s)) for s in "ab"], name="today.jsonl")
     r = _cli_detect(cache, {"HC_MAX_EVENTS": "1"})
     assert r.returncode != 0
-    assert "상한" in r.stderr and "Traceback" not in r.stderr
+    assert "event limit" in r.stderr and "Traceback" not in r.stderr
     assert not list((cache / "signals").glob("*.json")) if (cache / "signals").exists() else True
     assert _cli_detect(cache, {"HC_MAX_EVENTS": "2"}).returncode == 0
 

@@ -119,7 +119,7 @@ def _plugins(plugins_file, red, cnt) -> list:
 def build(claude_home, plugins_file=None, *, redactor) -> dict:
     """redactor는 필수 키워드 인자다. 가림 없이 부르는 길을 두지 않는다."""
     if not callable(getattr(redactor, "redact", None)):
-        raise TypeError("redactor는 redact(text) 메서드를 가진 가림기여야 한다")
+        raise TypeError("redactor must have a redact(text) method")
     red, home, cnt = redactor, pathlib.Path(claude_home), _Count()
     mem = []
     for idx in sorted(home.glob("projects/*/memory/MEMORY.md")):
@@ -163,5 +163,5 @@ def fit_input(signals: list, inventory: dict, max_bytes: int) -> dict:
         if isinstance(inv.get(key), list):
             inv[key] = [{**e, "description": ""} if isinstance(e, dict) else e for e in inv[key]]
     if _size(sigs, inv) > max_bytes:
-        raise ValueError(f"판정 입력이 최대 크기 {max_bytes}바이트를 넘는다")
+        raise ValueError(f"judge input exceeds the maximum size of {max_bytes} bytes")
     return {"signals": sigs, "inventory": inv}

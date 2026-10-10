@@ -167,3 +167,16 @@ def test_readmes_state_inventory_sent():
     for n in READMES:
         t = (ROOT / n).read_text(encoding="utf-8")
         assert "MEMORY.md" in t and "200" in t, n
+
+# --- 사용자에게 보이는 메시지(stderr·예외·러너 로그)는 영어 기본이다 ---
+def test_user_facing_messages_are_english():
+    import re
+    hangul = re.compile("[가-힣]")
+    msg = re.compile(r"raise \w+\(|print\(|errs\.append\(|return \[f?\"|_fail |_log |echo \"harness-creator: ")
+    bad = []
+    for p in sorted((ROOT / "hc").glob("*.py")) + [ROOT / "scripts" / "run-analysis.sh"]:
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            code = line.split(" #", 1)[0]
+            if msg.search(code) and hangul.search(code):
+                bad.append(f"{p.name}:{n}")
+    assert not bad, bad

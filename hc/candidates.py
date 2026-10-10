@@ -47,24 +47,24 @@ def _grounding(sids, index) -> tuple:
 
 def _check_evidence(i, ev, grounding) -> list:
     if not isinstance(ev, dict):
-        return [f"[{i}] evidence는 dict여야 한다"]
+        return [f"[{i}] evidence must be a dict"]
     samples, sessions = grounding
     errs = []
     s = ev.get("sessions")
     if not isinstance(s, int) or isinstance(s, bool) or s < 1:
-        errs.append(f"[{i}] evidence.sessions는 양의 정수여야 한다: {s!r}")
+        errs.append(f"[{i}] evidence.sessions must be a positive integer: {s!r}")
     elif s > len(sessions):
-        errs.append(f"[{i}] evidence.sessions {s}가 근거 신호의 세션 수 {len(sessions)}보다 많다")
+        errs.append(f"[{i}] evidence.sessions {s} exceeds the {len(sessions)} sessions of its signals")
     dr = ev.get("date_range")
     if not (isinstance(dr, str) and _DATE_RANGE.fullmatch(dr)):
-        errs.append(f"[{i}] evidence.date_range 형식 밖(YYYY-MM-DD..YYYY-MM-DD): {dr!r}")
+        errs.append(f"[{i}] evidence.date_range not in YYYY-MM-DD..YYYY-MM-DD form: {dr!r}")
     quotes = ev.get("quotes")
     if not _str_list(quotes):
-        errs.append(f"[{i}] evidence.quotes는 비지 않은 문자열 목록이어야 한다")
+        errs.append(f"[{i}] evidence.quotes must be a non-empty list of strings")
     else:
         bad = [q for q in quotes if q not in samples]
         if bad:
-            errs.append(f"[{i}] evidence.quotes가 근거 신호의 samples에 없음: {len(bad)}건")
+            errs.append(f"[{i}] evidence.quotes not found in the samples of its signals: {len(bad)}")
     return errs
 
 def _path_ok(form, path: str) -> bool:
@@ -79,69 +79,69 @@ def _path_ok(form, path: str) -> bool:
 
 def _check_change(i, pc, form, cid) -> list:
     if not isinstance(pc, dict):
-        return [f"[{i}] proposed_change는 dict여야 한다"]
+        return [f"[{i}] proposed_change must be a dict"]
     errs = []
     if pc.get("action") not in ("create", "modify"):
-        errs.append(f"[{i}] proposed_change.action 허용값 밖: {pc.get('action')!r}")
+        errs.append(f"[{i}] proposed_change.action not allowed: {pc.get('action')!r}")
     if not _str(pc.get("summary")):
-        errs.append(f"[{i}] proposed_change.summary는 비지 않은 문자열이어야 한다")
+        errs.append(f"[{i}] proposed_change.summary must be a non-empty string")
     path = pc.get("path")
     if form in FORMS and form not in CREATABLE:
         if path is not None:
-            errs.append(f"[{i}] {form} 형태는 추천 전용이라 proposed_change.path를 두지 않는다: {path!r}")
+            errs.append(f"[{i}] form {form} is recommendation only and takes no proposed_change.path: {path!r}")
     elif not _str(path):
-        errs.append(f"[{i}] proposed_change.path는 비지 않은 문자열이어야 한다")
+        errs.append(f"[{i}] proposed_change.path must be a non-empty string")
     elif form in FORMS and not _path_ok(form, path):
-        errs.append(f"[{i}] proposed_change.path가 {form} 형태의 허용 경로 밖: {path!r}")
+        errs.append(f"[{i}] proposed_change.path not allowed for form {form}: {path!r}")
     if form == "hook" and _str(path) and _str(cid) and path != f"hooks/harness-creator/{cid}.sh":
-        errs.append(f"[{i}] hook의 proposed_change.path는 hooks/harness-creator/<후보 id>.sh 여야 한다: {path!r}")
+        errs.append(f"[{i}] hook proposed_change.path must be hooks/harness-creator/<candidate id>.sh: {path!r}")
     paths = pc.get("paths")
     if paths is not None and not (_str_list(paths) and all(
             not any(unicodedata.category(ch) in ("Cc", "Zl", "Zp") for ch in g) for g in paths)):
-        errs.append(f"[{i}] proposed_change.paths는 비지 않은 문자열 목록이어야 한다")
+        errs.append(f"[{i}] proposed_change.paths must be a non-empty list of strings")
     return errs
 
 def _check_one(i, c, index) -> list:
     errs = []
     for k in _REQ:
         if k not in c:
-            errs.append(f"[{i}] 필드 누락: {k}")
+            errs.append(f"[{i}] missing field: {k}")
     for k in ("id", "title", "expected_effect"):
         if k in c and not _str(c[k]):
-            errs.append(f"[{i}] {k}는 비지 않은 문자열이어야 한다")
+            errs.append(f"[{i}] {k} must be a non-empty string")
     if _str(c.get("id")) and not _ID.fullmatch(c["id"]):
-        errs.append(f"[{i}] id 형식 밖(hc-YYYY-MM-DD-NN): {c['id']!r}")
+        errs.append(f"[{i}] id not in hc-YYYY-MM-DD-NN form: {c['id']!r}")
     form = c.get("form")
     if not (isinstance(form, str) and form in FORMS):
-        errs.append(f"[{i}] form 허용값 밖: {form!r}")
+        errs.append(f"[{i}] form not allowed: {form!r}")
     sids = c.get("signal_ids")
     errs += _check_evidence(i, c.get("evidence"), _grounding(sids, index))
     if not _str_list(sids):
-        errs.append(f"[{i}] signal_ids는 비지 않은 문자열 목록이어야 한다")
+        errs.append(f"[{i}] signal_ids must be a non-empty list of strings")
     else:
         bad = [s for s in sids if s not in index]
         if bad:
-            errs.append(f"[{i}] signal_ids가 신호 파일에 없음: {bad}")
+            errs.append(f"[{i}] signal_ids not in the signal file: {bad}")
     ov = c.get("overlaps")
     if ov is not None and not (isinstance(ov, list) and all(isinstance(x, str) for x in ov)):
-        errs.append(f"[{i}] overlaps는 문자열 목록이어야 한다")
+        errs.append(f"[{i}] overlaps must be a list of strings")
     errs += _check_change(i, c.get("proposed_change"), form, c.get("id"))
     return errs
 
 def check_each(data, signals: list):
     """(최상위 오류 목록, [(후보, 그 후보의 오류 목록)]). 최상위가 깨졌으면 후보 목록은 비어 있다."""
     if not isinstance(data, dict) or not isinstance(data.get("candidates"), list):
-        return ["최상위는 {\"candidates\": [...]} 여야 한다"], []
+        return ["top level must be {\"candidates\": [...]}"], []
     index = _index_signals(signals)
     out, seen = [], set()
     for i, c in enumerate(data["candidates"]):
         if not isinstance(c, dict):
-            out.append((c, [f"[{i}] dict 아님"])); continue
+            out.append((c, [f"[{i}] not a dict"])); continue
         errs = _check_one(i, c, index)
         cid = c.get("id")
         if _str(cid):
             if cid in seen:
-                errs.append(f"[{i}] 후보 id 중복: {cid}")
+                errs.append(f"[{i}] duplicate candidate id: {cid}")
             seen.add(cid)
         out.append((c, errs))
     return [], out
@@ -230,7 +230,7 @@ def decide(candidate_id: str, decision: str, reason: str) -> None:
     counts = _signal_counts()
     c = next((c for c in _latest_candidates()["candidates"] if c["id"] == candidate_id), None)
     if c is None:
-        raise ValueError(f"후보 id 없음: {candidate_id}")
+        raise ValueError(f"no such candidate id: {candidate_id}")
     sids = list(c["signal_ids"])
     rec = {"candidate_id": candidate_id, "fingerprint": fingerprint(c), "signal_ids": sids,
            "signal_counts": {sid: counts.get(sid, 0) for sid in sids}, "decision": decision,
