@@ -59,43 +59,82 @@ def static_check(script: str) -> list:
         found.add("write-outside-home")
     return [label for label in _LABELS if label in found]
 
-_FM_BLOCK = re.compile(r"^---\n(.*?)\n---", re.S)
+# rule frontmatter paths 는 대조하지 않고 승인한 값의 정규형으로 다시 쓴다(fix round 3 판정). 우리 판독과 Claude Code 의
+# YAML 해석이 어긋나 승인 범위가 넓어지는 일(빈 줄·주석 뒤 항목, 중복 키, 병합 키 등)을 없애려고, frontmatter 는
+# 맨 앞 칸에서 시작하는 단순한 `키: 값` 줄만 받고 나머지 형식은 거부한다.
+_TOP_KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*) *:(?: +(.*))?$")
+_YAML_BREAKS = ("\r", "\x85", "\u2028", "\u2029", "\x00")
 
-def _fm_paths(text: str):
-    """frontmatter 의 paths 목록. 인라인(`paths: a`, `paths: [a, b]`)과 블록(`- a`) 형식을 읽는다. 없거나 비면 None.
-    단순화: YAML 전체를 해석하지 않는다 → 흐름 목록 안 쉼표·주석은 못 읽는다(그러면 승인 범위와 달라 거부된다)."""
-    m = _FM_BLOCK.match(text or "")
-    lines = m.group(1).splitlines() if m else []
+def _split_fm(text: str):
+    """("---\n" 뒤 frontmatter 줄 목록, 닫는 `---` 줄부터의 나머지) 또는 frontmatter 가 없으면 None.
+    `---` 로 시작하는 첫 줄이 닫는 줄이며 정확히 `---` 여야 한다(파서마다 닫는 줄 규칙이 달라 숨은 키가 생기지 않게)."""
+    if not text.startswith("---\n"):
+        return None
+    lines = text[4:].split("\n")
     for i, line in enumerate(lines):
-        kv = re.match(r"^paths:\s*(.*?)\s*$", line)
-        if not kv:
-            continue
-        val = kv.group(1)
-        if val:
-            items = val[1:-1].split(",") if val.startswith("[") and val.endswith("]") else [val]
-        else:
-            items = []
-            for nxt in lines[i + 1:]:
-                it = re.match(r"^\s*-\s*(.*?)\s*$", nxt)
-                if not it:
-                    break
-                items.append(it.group(1))
-        out = [x.strip().strip("\"'") for x in items]
-        return [x for x in out if x] or None
-    return None
+        if line.startswith("---"):
+            if line != "---":
+                raise ApplyError(f"frontmatter 닫는 줄은 정확히 '---' 여야 한다: {line!r}")
+            return lines[:i], "\n".join(lines[i:])
+    raise ApplyError("frontmatter 닫는 '---' 줄이 없다")
 
-def _check_rule_paths(c: dict, content: str, old: str) -> None:
-    """승인한 후보의 paths 와 초안 paths 가 집합으로 같아야 한다(수정이면 기존 파일 paths 를 그대로 두는 것도 허용).
-    paths 가 빠진 초안은 여기서 막지 않고 쓰기 뒤 검증이 거부한다. global_rule 후보는 기존 규칙(paths 선택)을 따른다."""
-    approved = (c.get("proposed_change") or {}).get("paths")
-    got = _fm_paths(content)
-    if c.get("global_rule") or not isinstance(approved, list) or got is None:
-        return
-    allowed = [set(str(x) for x in approved)]
-    if _fm_paths(old):
-        allowed.append(set(_fm_paths(old)))
-    if set(got) not in allowed:
-        raise ApplyError(f"초안 paths {got} 가 승인한 범위 {approved} 와 다르다")
+def _check_simple_fm(fm: list) -> None:
+    seen_key = False
+    for line in fm:
+        if any(ch in line for ch in _YAML_BREAKS) or line.startswith("\t"):
+            raise ApplyError("frontmatter 에 CR·특수 줄바꿈·탭 들여쓰기를 쓰지 않는다")
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.startswith(" ") or line == "-" or line.startswith("- "):   # 들여쓴 줄·맨 앞 칸 블록 항목은 앞 키의 값
+            if not seen_key:
+                raise ApplyError("frontmatter 는 맨 앞 칸에서 시작하는 키로 시작해야 한다")
+            continue
+        m = _TOP_KEY.match(line)
+        if not m:
+            raise ApplyError(f"frontmatter 는 단순한 `키: 값` 형식만 받는다: {line!r}")
+        if (m.group(2) or "")[:1] in ("&", "*", "!"):
+            raise ApplyError(f"frontmatter 에 YAML 앵커·별칭·태그를 쓰지 않는다: {line!r}")
+        seen_key = True
+
+def _canon_paths(paths: list) -> list:
+    out = []
+    for g in paths:
+        if g not in out:
+            out.append(g)
+    return ["paths:"] + [f"  - {json.dumps(g, ensure_ascii=False)}" for g in out]
+
+def _normalize_rule(text: str, paths):
+    """paths 키와 거기 딸린 줄(다음 최상위 키 전까지: 항목·빈 줄·주석)을 모두 지우고, 첫 paths 자리에 승인 paths 정규형을
+    한 번만 넣는다. paths 가 None(global_rule)이면 지우기만 한다. (새 텍스트, 원래 paths 키 개수)를 돌려준다.
+    초안에 paths 키가 아예 없으면 넣지 않는다 → 비전역 rule 은 쓰기 뒤 검증이 거부하고 되돌린다."""
+    sp = _split_fm(text)
+    if sp is None:
+        return text, 0
+    fm, rest = sp
+    _check_simple_fm(fm)
+    out, n, i = [], 0, 0
+    while i < len(fm):
+        m = _TOP_KEY.match(fm[i])
+        if m and m.group(1) == "paths":
+            j = i + 1
+            while j < len(fm) and not _TOP_KEY.match(fm[j]):
+                j += 1
+            if n == 0 and paths:
+                out.extend(_canon_paths(paths))
+            n, i = n + 1, j
+            continue
+        out.append(fm[i])
+        i += 1
+    return "---\n" + "".join(line + "\n" for line in out) + rest, n
+
+def _approved_paths(c: dict):
+    """비전역 rule 후보의 승인 paths(비지 않은 문자열 목록). global_rule 이면 None. 없거나 형식이 틀리면 거부."""
+    if c.get("global_rule"):
+        return None
+    paths = (c.get("proposed_change") or {}).get("paths")
+    if not (isinstance(paths, list) and paths and all(isinstance(g, str) and g.strip() for g in paths)):
+        raise ApplyError("상시 로드(global_rule)가 아닌 rule 후보인데 승인된 proposed_change.paths 가 없다")
+    return list(paths)
 
 def _sha(p: pathlib.Path):
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
@@ -239,6 +278,14 @@ def _hook_spec(draft: dict, rel: str) -> dict:
     return {"real": str(sp), "exists": sp.exists(), "sha_before": _sha(sp), "event": h["event"],
             "matcher": matcher, "command": _hook_command(rel), "timeout": timeout}
 
+def _hook_settings_diff(draft: dict, rel: str):
+    st = _hook_spec(draft, rel)
+    cur = _load_settings(pathlib.Path(st["real"]))
+    diff = "".join(difflib.unified_diff(_settings_text(cur).splitlines(True) if st["exists"] else [],
+                                        _settings_text(_add_hook(cur, st)).splitlines(True),
+                                        fromfile="a/settings.json", tofile="b/settings.json"))
+    return st, diff
+
 def _build(draft) -> dict:
     """초안을 검사하고 쓸 내용을 계산한다. 아무것도 쓰지 않는다. plan·write 가 같은 함수로 계산한다."""
     if not isinstance(draft, dict):
@@ -271,8 +318,10 @@ def _build(draft) -> dict:
         raise ApplyError("사람이 쓴 파일에 harness-creator 표지를 넣지 않는다")
     if not exists and MARK not in content:
         raise ApplyError(f"새 파일에는 '{MARK}' 표지가 있어야 한다")
+    paths = None
     if form == "rule":
-        _check_rule_paths(c, content, old)
+        paths = _approved_paths(c)
+        content = _normalize_rule(content, paths)[0]
     mode = (real.stat().st_mode & 0o777) if exists else (0o700 if form == "hook" else 0o644)
     files = [{"rel": rel, "real": str(real), "exists": exists, "sha_before": _sha(real), "content": content,
               "mode": mode, "generated": not exists or generated_before}]
@@ -280,13 +329,9 @@ def _build(draft) -> dict:
                                         fromfile=f"a/{rel}", tofile=f"b/{rel}"))
     settings, warnings = None, []
     if form == "hook":
-        st = _hook_spec(draft, rel)
-        cur = _load_settings(pathlib.Path(st["real"]))
-        diff += "".join(difflib.unified_diff(_settings_text(cur).splitlines(True) if st["exists"] else [],
-                                             _settings_text(_add_hook(cur, st)).splitlines(True),
-                                             fromfile="a/settings.json", tofile="b/settings.json"))
-        settings, warnings = st, static_check(content)
-    return {"candidate_id": cid, "form": form, "global_rule": bool(c.get("global_rule")),
+        settings, sdiff = _hook_settings_diff(draft, rel)
+        diff, warnings = diff + sdiff, static_check(content)
+    return {"candidate_id": cid, "form": form, "global_rule": bool(c.get("global_rule")), "paths": paths,
             "signal_ids": c.get("signal_ids", []), "files": files, "settings": settings, "diff": diff,
             "warnings": warnings, "draft": draft}
 
@@ -315,6 +360,18 @@ def _run_hook(command: str, event: str):
             return None, ""
     return proc.returncode, out
 
+def _verify_rule_paths(text: str, p: dict) -> list:
+    """최종 파일의 paths 가 정규형 그대로인지 다시 확인한다(지우기·넣기 결과 재확인)."""
+    try:
+        norm, n = _normalize_rule(text, p.get("paths"))
+    except ApplyError as e:
+        return [f"rule frontmatter: {e}"]
+    if norm != text:
+        return ["rule paths 가 승인 범위의 정규형이 아니다"]
+    if p["global_rule"]:
+        return ["상시 로드 rule 에 paths 가 남아 있다"] if n else []
+    return [] if n == 1 else ["rule 에 paths: 조건 없음(상시 로드 허용 후보가 아님)"]
+
 def _verify_file(p: dict) -> list:
     """파일 검증. hook 은 settings 에 항목을 넣기 전에 실행해 본다(살아 있는 세션이 검증 전 훅을 집어 가지 않게)."""
     errs = []
@@ -324,8 +381,8 @@ def _verify_file(p: dict) -> list:
     if p["form"] == "rule":
         if not text.startswith("---\n"):
             errs.append("rule frontmatter 없음")
-        elif not p["global_rule"] and not _fm_paths(text):
-            errs.append("rule 에 paths: 조건 없음(상시 로드 허용 후보가 아님)")
+        else:
+            errs += _verify_rule_paths(text, p)
     elif p["form"] == "skill":
         if not fm.get("name") or not fm.get("description"):
             errs.append("skill frontmatter 에 name·description 필요")
@@ -415,7 +472,7 @@ def _git_root(path: pathlib.Path):
         return None
     return str(pathlib.Path(r.stdout.strip()).resolve()) if r.returncode == 0 and r.stdout.strip() else None
 
-_SAME = ("candidate_id", "form", "global_rule", "files", "settings", "diff")
+_SAME = ("candidate_id", "form", "global_rule", "paths", "files", "settings", "diff")
 
 def write(candidate_id: str) -> dict:
     pp = _plans_dir() / f"{candidate_id}.json"
