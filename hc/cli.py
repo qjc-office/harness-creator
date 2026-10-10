@@ -65,10 +65,10 @@ def _consent_text(cfg: dict) -> str:
              K["store"].format(data_dir=data_dir()), "", K["codex_q"]]
     return "\n".join(lines)
 
-# forget이 지우는 것(지울 목록 방식): 세션에서 나온 캐시·커서·이벤트·신호·리포트·수집 통계·로그.
+# forget이 지우는 것(지울 목록 방식): 세션에서 나온 캐시·커서·이벤트·신호·리포트·수집 통계·로그와 적용 계획(plans)·초안(drafts).
 # 남는 것: 설정·동의(config.json), 기각 억제 근거(decisions.jsonl), 적용 원장(applied.jsonl), 되돌리기 백업(backups),
 # 킬스위치(disabled), 잠금(run.lock). 목록에 없는 것은 지우지 않는다.
-_FORGET_DELETE = ("cursor.json", "collect-stats.json", "events", "signals", "reports", "logs")
+_FORGET_DELETE = ("cursor.json", "collect-stats.json", "events", "signals", "reports", "logs", "plans", "drafts")
 
 def _wrap_argv(cfg: dict) -> list:
     """run.wrap은 문자열 목록이고 NUL이 없어야 한다(wrap-argv가 NUL로 구분해 내보낸다). 아니면 ConfigError."""

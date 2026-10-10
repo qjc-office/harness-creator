@@ -59,7 +59,7 @@ def static_check(script: str) -> list:
         found.add("write-outside-home")
     return [label for label in _LABELS if label in found]
 
-# rule·skill frontmatter 는 초안 것을 버리고 apply 가 고정 키로 새로 만든다(fix round 4 판정, 구조 전환).
+# rule·skill frontmatter 는 초안 것을 버리고 apply 가 고정 키로 새로 만든다(구조 전환).
 # Claude Code 로더는 frontmatter 를 LOADER_FM 으로 자르고(줄 첫머리가 아니어도 처음 나오는 `---` 에서 끝남) YAML 로 읽으며,
 # 해석이 실패하면 {} 로 보아 paths 없는 rule 을 상시 로드한다. 초안을 편집하면 그 파서와 어긋날 여지가 남으므로, 값은 한 줄
 # JSON 문자열로만 쓰고 `---`·제어 문자를 거부해 "우리가 만든 블록 = 로더가 자르는 블록"이 되게 한다.

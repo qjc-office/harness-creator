@@ -87,7 +87,7 @@ def test_load_decisions_skips_broken_lines(cache):
     (cache / "decisions.jsonl").write_text(ok + "\n" + ok[: len(ok) // 2], encoding="utf-8")
     assert load_decisions() == {"correction:y": {"decision": "reject", "count": 2}}
 
-# --- fix round 1: 신호 id 안정화 ---
+# --- 신호 id 안정화 ---
 A = "PR 만들고 CI 통과하면 머지해줘"
 B = "PR 만들고 CI 통과하면 머지해줘요"
 
@@ -137,7 +137,7 @@ def test_run_detect_generated_at_is_iso_local_timestamp(cache):
     assert _re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", data["generated_at"])
     assert _re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", path.name)
 
-# --- final fix I1: 신호 파일에 탐지 범위를 남긴다 ---
+# --- 신호 파일에 탐지 범위를 남긴다 ---
 def test_run_detect_writes_scope(cache):
     d = cache / "events"
     d.mkdir(parents=True)
@@ -162,7 +162,7 @@ def test_run_detect_scope_empty(cache):
     assert scope["events"] == {"claude": 0, "codex": 0} and scope["sessions"] == 0
     assert scope["earliest"] == "" and scope["latest"] == ""
 
-# --- astra r1 A2: 새 결정 형식(후보당 한 줄)에서도 신호별 억제가 동작하고 옛 형식도 읽는다 ---
+# --- 새 결정 형식(후보당 한 줄)에서도 신호별 억제가 동작하고 옛 형식도 읽는다 ---
 def _new(cid, sids, counts, decision):
     return {"candidate_id": cid, "fingerprint": "abcd1234", "signal_ids": sids, "signal_counts": counts,
             "decision": decision, "reason": "", "ts": "2026-10-09T00:00:00"}
@@ -206,7 +206,7 @@ def test_resume_messages_not_clustered():
     evs = [ev(f"s{i}", f"2026-10-0{i}T00:00:00Z", "user_msg", "continue") for i in range(1, 6)]
     assert detect_repeated_instructions(evs, CFG) == [] and D.LAST_RESUME_SKIPPED == 5
 
-# --- fix round 1: run_detect에 G1·G2·observed가 실제로 배선돼 있는가 ---
+# --- run_detect에 G1·G2·observed가 실제로 배선돼 있는가 ---
 STALE = "릴리스 노트 쓰고 태그 달아서 배포해줘"
 BATCH = "야간 점검 돌리고 결과 표로 정리해줘"
 KEEP = "PR 만들고 CI 통과하면 머지해줘"
@@ -230,7 +230,7 @@ def test_run_detect_applies_g1_g2_and_records_observed(cache):
     assert set(data["observed"]) == {sid(STALE), sid(BATCH), sid(KEEP)}
     assert data["observed"][sid(STALE)] == {"last_seen": "2026-10-05T00:00:00Z", "count": 3}
 
-# --- fix round 1: scope.lang은 비사용자 발화를 빼고, resume_skipped는 길이 필터 통과분만 ---
+# --- scope.lang은 비사용자 발화를 빼고, resume_skipped는 길이 필터 통과분만 ---
 def test_scope_lang_ignores_non_user_messages(cache):
     (cache / "events").mkdir(parents=True)
     evs = [Event("claude", s, "2026-10-02T00:00:00Z", "/w", "user_msg", "<task-notification> done </task-notification>")

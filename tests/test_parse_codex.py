@@ -102,7 +102,7 @@ def test_empty_body_failures_get_distinct_sigs(tmp_path):
     assert len(e3) == 1 and e3[0].error_sig == error_signature("exec script failed")
     assert len({e1[0].error_sig, e2[0].error_sig, e3[0].error_sig}) == 3
 
-# --- astra r2 B2 변형: Codex 파서도 깨진 줄을 센다 ---
+# --- Codex 파서도 깨진 줄을 센다 ---
 def test_codex_malformed_line_counted(tmp_path):
     p = tmp_path / "rollout-1.jsonl"
     p.write_text(json.dumps(META) + "\n" + "{not json\n" + "7\n" + json.dumps(_user("빌드 고쳐줘"), ensure_ascii=False) + "\n"

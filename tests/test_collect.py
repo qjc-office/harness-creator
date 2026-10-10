@@ -210,13 +210,13 @@ def test_cwd_redacted_with_same_redactor(cache, src, tmp_path, monkeypatch):
     lexp = tmp_path / "lex.json"
     lexp.write_text(json.dumps({"orgs": ["가나다상사"], "people": ["홍길순"]}), encoding="utf-8")
     rec = _u("hello")
-    rec["cwd"] = "/Users/u/가나다상사-ax"
+    rec["cwd"] = "/Users/u/가나다상사-proj"
     _cc(tmp_path / "cc", "s1.jsonl", [rec])
     collect(7, include_codex=True, sources=src, redactor=Redactor(lexicon_files=[str(lexp)], lexicon_label="L3"))
     ev = _events(cache)
-    assert ev and ev[0]["cwd"] == "~/[L3]-ax"
+    assert ev and ev[0]["cwd"] == "~/[L3]-proj"
 
-# --- final fix I2: 사전 건수를 수집 통계에 싣는다 ---
+# --- 사전 건수를 수집 통계에 싣는다 ---
 def test_lexicon_terms_reported(cache, src, tmp_path):
     class Thin(FakeRedactor):
         has_lexicon = True
@@ -225,7 +225,7 @@ def test_lexicon_terms_reported(cache, src, tmp_path):
     assert collect(7, include_codex=True, sources=src, redactor=Thin()).lexicon_terms == 3
     assert json.loads((cache / "collect-stats.json").read_text())["lexicon_terms"] == 3
 
-# --- final fix M1: 오래된 이벤트 파일 정리 ---
+# --- 오래된 이벤트 파일 정리 ---
 def test_old_event_files_pruned(cache, src, tmp_path):
     ev_dir = cache / "events"
     ev_dir.mkdir(parents=True)
@@ -240,7 +240,7 @@ def test_old_event_files_pruned(cache, src, tmp_path):
     collect(7, include_codex=True, sources=src, redactor=FakeRedactor(), now=now)
     assert not old.exists() and keep.exists() and other.exists()
 
-# --- astra r2 B2: 깨진 줄 수를 수집 통계에 남기고 커서는 넘긴다(재시도 불가) ---
+# --- 깨진 줄 수를 수집 통계에 남기고 커서는 넘긴다(재시도 불가) ---
 def test_malformed_lines_counted_in_stats_and_not_retried(cache, src, tmp_path):
     p = _cc(tmp_path / "cc", "s1.jsonl", [_u("a")])
     with p.open("a", encoding="utf-8") as fh:
@@ -262,7 +262,7 @@ def test_malformed_summed_across_files(cache, src, tmp_path):
             fh.write("{bad\n[]\n")
     assert collect(7, include_codex=True, sources=src, redactor=FakeRedactor()).malformed == 4
 
-# --- astra r3 C2: 도구 이름(tool)도 같은 가림기를 거친다 ---
+# --- 도구 이름(tool)도 같은 가림기를 거친다 ---
 _GHP = "ghp_" + "Zx9" * 8   # 테스트용 가짜 토큰
 
 @pytest.fixture
@@ -302,7 +302,7 @@ def test_codex_tool_names_redacted(cache, src, tmp_path, real_red):
     tools = [e["tool"] for e in _events(cache)]
     assert tools == ["[L3]_lookup", "exec"]
 
-# --- astra r5 E1: 소스 루트 밖을 가리키는 세션 파일 심링크는 따라가지 않는다 ---
+# --- 소스 루트 밖을 가리키는 세션 파일 심링크는 따라가지 않는다 ---
 def _ext(tmp_path, name, text):
     o = tmp_path / "ext"; o.mkdir(exist_ok=True)
     f = o / name
@@ -360,7 +360,7 @@ def test_symlinked_project_dir_outside_root_skipped(cache, src, tmp_path):
     st = collect(7, include_codex=True, sources=src, redactor=FakeRedactor())
     assert _events(cache) == [] and st.skipped_outside_source == 1
 
-# --- astra r5 E3: 덧붙이기 대상 이벤트 파일이 이미 0644여도 0600으로 조인다 ---
+# --- 덧붙이기 대상 이벤트 파일이 이미 0644여도 0600으로 조인다 ---
 def _today_events(cache):
     d = cache / "events"; d.mkdir(parents=True, exist_ok=True)
     return d / (time.strftime("%Y-%m-%d") + ".jsonl")
@@ -410,7 +410,7 @@ def test_slot_failure_writes_nothing(cache, src, tmp_path):
         collect(7, include_codex=True, sources=src)
     assert not (cache / "events").exists()
 
-# --- fix round 1: 동의는 정확히 true일 때만, 커서에도 가린 cwd만 ---
+# --- 동의는 정확히 true일 때만, 커서에도 가린 cwd만 ---
 @pytest.mark.parametrize("val", ["false", "0", 1, "true"])
 def test_codex_consent_requires_exact_true(cache, src, tmp_path, val):
     from hc.config import save_user_config
@@ -434,17 +434,17 @@ def test_codex_cursor_stores_redacted_cwd(cache, src, tmp_path):
     d = tmp_path / "cx" / "2026" / "10" / "01"; d.mkdir(parents=True)
     p = d / "rollout-z.jsonl"
     p.write_text(json.dumps({"type": "session_meta", "timestamp": "t",
-                             "payload": {"session_id": "cz", "cwd": "/Users/u/Acme-ax"}}) + "\n")
+                             "payload": {"session_id": "cz", "cwd": "/Users/u/Acme-proj"}}) + "\n")
     collect(7, include_codex=True, sources=src, redactor=red)
     raw = (cache / "cursor.json").read_text()
     assert "Acme" not in raw and "/Users/u" not in raw
-    assert json.loads(raw)[str(p)]["cwd"] == "~/[L3]-ax"
+    assert json.loads(raw)[str(p)]["cwd"] == "~/[L3]-proj"
     with p.open("a") as fh:
         fh.write(json.dumps({"type": "response_item", "timestamp": "t", "payload": {"type": "message", "role": "user",
                              "content": [{"type": "input_text", "text": "hi"}]}}) + "\n")
     collect(7, include_codex=True, sources=src, redactor=red)
     ev = _events(cache)
-    assert ev and ev[-1]["cwd"] == "~/[L3]-ax" and ev[-1]["session_id"] == "cz"
+    assert ev and ev[-1]["cwd"] == "~/[L3]-proj" and ev[-1]["session_id"] == "cz"
 
 def test_events_dir_created_private(cache, src, tmp_path, monkeypatch):
     import hc.collect as c

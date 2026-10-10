@@ -1,4 +1,4 @@
-"""astra r4 D2: 캐시 파일은 umask와 무관하게 0600으로 쓴다."""
+"""캐시 파일은 umask와 무관하게 0600으로 쓴다."""
 import json, os, pathlib, stat, subprocess, sys
 import pytest
 

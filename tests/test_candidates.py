@@ -85,7 +85,7 @@ def test_decide_stores_signal_count(cache):
     assert line["signal_counts"] == {"failure_loop:a": 7}
     assert set(line) == {"candidate_id", "fingerprint", "signal_ids", "signal_counts", "decision", "reason", "ts"}
 
-# --- fix round 1: validate는 절대 예외를 던지지 않는다 ---
+# --- validate는 절대 예외를 던지지 않는다 ---
 import pytest
 
 SIG = SIGNALS
@@ -150,7 +150,7 @@ def test_pending_skips_broken_decision_line(cache):
         fh.write('{"candidate_id": "hc-2", "sig\n[1, 2]\n')
     assert [c["id"] for c in pending()] == ["hc-2"]
 
-# --- final fix I3: 근거 대조와 경로 형식 ---
+# --- 근거 대조와 경로 형식 ---
 def test_date_range_format_enforced():
     assert any("date_range" in e for e in _errs(evidence={"sessions": 2, "date_range": "x..y", "quotes": ["q"]}))
     assert any("date_range" in e for e in _errs(evidence={"sessions": 2, "quotes": ["q"]}))
@@ -207,7 +207,7 @@ def test_disallowed_paths_by_form(form, path):
 def test_validate_tolerates_malformed_signals():
     assert validate({"candidates": [vcand()]}, [None, 3, {"id": 5}, {"id": "failure_loop:a", "samples": "q", "sessions": None}]) != []
 
-# --- final fix I1: 본 범위는 탐지가 본 것, 증분 수집은 따로 ---
+# --- 본 범위는 탐지가 본 것, 증분 수집은 따로 ---
 SCOPE = {"days": 7, "sessions": 12, "events": {"claude": 300, "codex": 40}, "skipped": 2,
          "earliest": "2026-10-02T00:00:00Z", "latest": "2026-10-08T00:00:00Z"}
 
@@ -236,12 +236,12 @@ def test_recommend_only_forms_have_no_path(form):
     errs = _errs(form=form, proposed_change={"action": "create", "path": "scripts/foo.py", "summary": "s"})
     assert any("path" in e for e in errs)
 
-# --- astra r1 A2: 결정은 후보 내용(fingerprint)에 묶이고, 후보당 한 줄을 한 번에 쓴다 ---
+# --- 결정은 후보 내용(fingerprint)에 묶이고, 후보당 한 줄을 한 번에 쓴다 ---
 import hashlib, os
 from hc import candidates as _cm
 
 def _fp(form, path, sids, title="t", action="create", summary="s", effect="e", global_rule=False, paths=None):
-    """r6 F1 판정 공식: 근거(evidence)를 뺀 제안 내용의 정규 JSON sha1 앞 8자. 기본값은 cand()와 같다.
+    """판정 공식: 근거(evidence)를 뺀 제안 내용의 정규 JSON sha1 앞 8자. 기본값은 cand()와 같다.
     Task 10 fix: 상시 로드 여부(global_rule)와 로드 조건(proposed_change.paths)도 지문에 넣는다."""
     canon = {"form": form, "title": title, "signal_ids": sorted(sids), "global_rule": global_rule,
              "proposed_change": {"action": action, "path": path, "summary": summary, "paths": paths},
@@ -337,7 +337,7 @@ def test_decide_after_truncated_tail_starts_new_line(cache):
     assert [x["id"] for x in pending()] == [CID]
     assert json.loads(_dec_lines(cache)[-1])["candidate_id"] == c2["id"]
 
-# --- astra r1 A4: 파싱 실패가 있으면 리포트 첫 줄이 불완전을 말한다 ---
+# --- 파싱 실패가 있으면 리포트 첫 줄이 불완전을 말한다 ---
 def _first(md):
     return md.splitlines()[0]
 
@@ -376,7 +376,7 @@ def test_control_chars_in_path_rejected(form, path):
     errs = _errs(form=form, proposed_change={"action": "create", "path": path, "summary": "s"})
     assert any("path" in e for e in errs), (form, repr(path))
 
-# --- astra r2 B2: 깨진 레코드 경고(리포트 머리, rc 영향 없음) ---
+# --- 깨진 레코드 경고(리포트 머리, rc 영향 없음) ---
 def test_malformed_warning_in_header():
     md = render({"candidates": []}, _stats(errors=0, malformed=3), 0, None)
     assert "> 경고: 깨진 레코드 3줄 건너뜀(형식 오류, 재시도 불가)." in md
@@ -391,7 +391,7 @@ def test_no_malformed_warning_without_real_count(m):
         st["malformed"] = m
     assert "깨진 레코드" not in render({"candidates": []}, st, 0, None)
 
-# --- astra r2 B3: 파싱 실패 수가 없거나 손상이면 0이 아니라 '알 수 없음'(None) ---
+# --- 파싱 실패 수가 없거나 손상이면 0이 아니라 '알 수 없음'(None) ---
 from hc.candidates import parse_errors
 
 @pytest.mark.parametrize("st", [{}, {"errors": "2"}, {"errors": -1}, {"errors": True}, {"errors": None}, {"errors": 1.0}, None, []])
@@ -406,9 +406,9 @@ def test_corrupt_stats_warning_in_header():
     md = render({"candidates": []}, {"events": {}, "errors": "2"}, 0, None)
     assert "> 경고: 수집 통계 손상(오류 수를 읽지 못함). 이번 실행은 성공으로 기록되지 않는다." in md
     assert "수집 통계 손상" not in render({"candidates": []}, _stats(errors=0, deferred=0, malformed=0), 0, None)
-    assert "수집 통계 손상" in render({"candidates": []}, _stats(errors=0), 0, None)   # r5 E2: deferred 없음도 손상
+    assert "수집 통계 손상" in render({"candidates": []}, _stats(errors=0), 0, None)   # deferred 없음도 손상
 
-# --- astra r2 M1: 후보 id·date_range도 전체 일치(끝 개행 거부) ---
+# --- 후보 id·date_range도 전체 일치(끝 개행 거부) ---
 @pytest.mark.parametrize("cid", ["hc-2026-10-09-01\n", "hc-2026-10-09-01\r", "hc-2026-10-09-01\x00"])
 def test_candidate_id_trailing_control_rejected(cid):
     assert any("id 형식" in e for e in _errs(id=cid))
@@ -418,7 +418,7 @@ def test_date_range_trailing_control_rejected(dr):
     ev = {"sessions": 2, "date_range": dr, "quotes": ["q"]}
     assert any("date_range" in e for e in _errs(evidence=ev))
 
-# --- astra r3 C4: skill 경로는 정확히 skills/<이름>/SKILL.md ---
+# --- skill 경로는 정확히 skills/<이름>/SKILL.md ---
 @pytest.mark.parametrize("path", ["skills/foo/", "skills/foo/skill.md", "skills//SKILL.md", "skills/foo/SKILL.md/"])
 def test_skill_path_must_be_skill_md(path):
     errs = _errs(form="skill", proposed_change={"action": "create", "path": path, "summary": "s"})
@@ -427,7 +427,7 @@ def test_skill_path_must_be_skill_md(path):
 def test_skill_md_path_accepted():
     assert _errs(form="skill", proposed_change={"action": "modify", "path": "skills/foo-bar/SKILL.md", "summary": "s"}) == []
 
-# --- astra r5 E2: 미처리(deferred) 파일도 불완전이다. 판정은 한 함수(incomplete_reasons)가 한다 ---
+# --- 미처리(deferred) 파일도 불완전이다. 판정은 한 함수(incomplete_reasons)가 한다 ---
 from hc.candidates import incomplete_reasons, stats_corrupt
 
 def test_deferred_marks_first_line_incomplete():
@@ -454,7 +454,7 @@ def test_bad_deferred_is_corrupt(deferred):
 def test_clean_counts_not_corrupt():
     assert stats_corrupt(_stats(errors=0, deferred=0, malformed=0)) is False
 
-# --- astra r5 E3: 결정 원장이 이미 0644여도 덧붙일 때 0600으로 조인다 ---
+# --- 결정 원장이 이미 0644여도 덧붙일 때 0600으로 조인다 ---
 def test_existing_decisions_file_tightened(cache):
     _write_cands(cache, "2026-10-09", [cand(id=CID)])
     d = cache / "decisions.jsonl"
@@ -471,7 +471,7 @@ def test_new_decisions_file_0600_under_umask_022(cache):
         os.umask(old)
     assert oct(os.stat(cache / "decisions.jsonl").st_mode & 0o777) == "0o600"
 
-# --- astra r5 E4: 깨진 레코드(malformed)도 불완전이다 ---
+# --- 깨진 레코드(malformed)도 불완전이다 ---
 def test_malformed_marks_first_line_incomplete_and_keeps_warning():
     md = render({"candidates": []}, _stats(errors=0, deferred=0, malformed=2), 0, None)
     assert _first(md) == "# harness-creator 리포트: 후보 없음 (불완전: 깨진 레코드 2줄)"
@@ -489,7 +489,7 @@ def test_bad_malformed_is_corrupt(m):
         st["malformed"] = m
     assert stats_corrupt(st) is True
 
-# --- astra r6 F1: 제안 내용이 바뀌면 지문이 바뀌어 다시 미결이 된다. 근거(evidence)는 지문에 넣지 않는다 ---
+# --- 제안 내용이 바뀌면 지문이 바뀌어 다시 미결이 된다. 근거(evidence)는 지문에 넣지 않는다 ---
 @pytest.mark.parametrize("change", [
     {"proposed_change": {"action": "modify", "path": "hooks/harness-creator/hc-2026-10-09-01.sh", "summary": "s"}},   # action
     {"proposed_change": {"action": "create", "path": "hooks/harness-creator/hc-2026-10-09-01.sh", "summary": "다른 요약"}},   # summary

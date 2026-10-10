@@ -125,7 +125,7 @@ def test_failure_loop_second_session_below_repeat_threshold():
     evs.append(ev("b", "t", "tool_error", "E", "Bash", "s"))
     assert detect_failure_loops(evs, CFG) == []
 
-# --- astra r1 A3: 이벤트는 줄 단위로 흘려 읽고, 상한을 넘으면 성공으로 끝내지 않는다 ---
+# --- 이벤트는 줄 단위로 흘려 읽고, 상한을 넘으면 성공으로 끝내지 않는다 ---
 import json, pathlib, subprocess, sys, time as _time
 import pytest
 

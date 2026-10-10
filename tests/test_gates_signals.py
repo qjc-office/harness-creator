@@ -48,7 +48,7 @@ def test_session_starts_uses_earliest_event():
     assert t == datetime(2026, 10, 8, 0, 0, 1, tzinfo=timezone.utc).timestamp()
     assert h == hashlib.sha1("first".encode()).hexdigest()[:12]
 
-# --- fix round 1: 빈 첫 발화 세션은 묶지 않고, 세션 키는 (surface, session_id) ---
+# --- 빈 첫 발화 세션은 묶지 않고, 세션 키는 (surface, session_id) ---
 def test_sessions_without_user_message_not_batched():
     evs = [Event("claude", s, f"2026-10-08T00:00:0{i}Z", "/w", "tool_call", "") for i, s in enumerate("abc")]
     kept, filt = gate_signals([sig(["a", "b", "c"])], evs, CFG, NOW)

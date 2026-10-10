@@ -92,7 +92,7 @@ def test_lexicon_slot(tmp_path):
     lex.write_text(json.dumps({"orgs": ["Acme", "가나다" + "상사"], "people": ["홍길순"]}), encoding="utf-8")
     r = R(lexicon_files=[str(lex)])
     assert r.has_lexicon and r.lexicon_terms == 3
-    assert r.redact("acme-ax ACME Acme") == "[NAME]-ax [NAME] [NAME]"
+    assert r.redact("acme-proj ACME Acme") == "[NAME]-proj [NAME] [NAME]"
     assert r.redact("acmecorp") == "acmecorp"                     # 영문은 단어 경계
     assert r.redact("가나다" + "상사와 홍길순") == "[NAME]와 [NAME]"     # 한글은 조사가 붙으므로 부분 일치
 
@@ -154,7 +154,6 @@ def test_lexicon_mixed_script_case_insensitive(tmp_path):
     assert R(lexicon_files=[str(lex)]).redact("ACME" + "상사 acme" + "상사") == "[NAME] [NAME]"
 
 
-# --- fix round 1 ---
 import time, base64
 
 def test_assignment_quoted_value_with_spaces():
@@ -173,7 +172,7 @@ def test_assignment_escaped_json():
     assert out == '{\\"password\\": \\"[SECRET]\\"}'
 
 def test_assignment_unquoted_keeps_structure():
-    # Fix round 2 판정: 따옴표 없는 값은 공백·따옴표 전까지 넉넉히 가린다(구조 문자 정지 철회).
+    # 판정: 따옴표 없는 값은 공백·따옴표 전까지 넉넉히 가린다(구조 문자 정지 철회).
     # 유일한 예외는 URL 쿼리의 다음 파라미터(& 뒤 \w+=).
     assert R().redact("{TOK" + "EN=" + _HEX + "}") == "{TOKEN=[SECRET]"
     assert R().redact("a?api" + "_key=" + _HEX + "&next=1") == "a?api_key=[SECRET]&next=1"
@@ -224,7 +223,6 @@ def test_assignment_key_regex_linear_time():
     R().redact(("TOK" + "EN") * 20000)
     assert time.monotonic() - t < 1.0
 
-# --- fix round 2 ---
 _PW = "pass" + "word"
 _Q = "QZ" + "QZ"   # 누출 표지
 
@@ -267,7 +265,7 @@ def test_assignment_quote_context(raw, want):
     out = R().redact(raw)
     assert _Q not in out and out == want
 
-# 자체 탐색(Fix round 2 항목 4)에서 찾은 누출
+# 자체 탐색에서 찾은 누출
 @pytest.mark.parametrize("raw,want", [
     (_PW + "=“" + _Q + " abc def”", _PW + "=“[SECRET]”"),
     (_PW + "=`" + _Q + " abc def`", _PW + "=`[SECRET]`"),

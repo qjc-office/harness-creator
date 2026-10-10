@@ -13,9 +13,9 @@
 
 ## 하는 일
 
-1. 첫 실행에서 읽는 범위, 보내는 것과 크기, Codex 포함 여부를 보여 주고 동의를 받습니다.
+1. 첫 실행에서 읽는 범위, 보내는 것과 크기, Codex 포함 여부를 보여 주고 동의를 받습니다. Codex를 포함하면 가린 Codex 세션 발췌도 판정을 위해 내 `claude` CLI, 즉 Anthropic으로 보내집니다.
 2. 지난 7일을 수집하면서 시크릿·개인정보를 가리고 신호를 찾습니다. 이미 해소된 신호, 일괄 실행으로 부풀려진 신호, Codex에서만 생긴 문제, 근거가 약한 상시 로드 규칙, 3건을 넘는 후보는 코드가 걸러 냅니다.
-3. 가린 발췌를 내 `claude` CLI로 한 번 보냅니다. 도구 0개, MCP 서버 0개, 사용자 설정 무시(`--restricted --tools ""`)로 돕니다.
+3. 가린 발췌를 내 `claude` CLI로 한 번 보냅니다. 도구 0개, MCP 서버 0개, 사용자 설정 무시(`--restricted --tools ""`)로 돌립니다.
 4. 후보를 보여 주고 고르게 합니다. 승인한 규칙·스킬·훅만 diff 확인 뒤 `~/.claude`에 씁니다. 메모리·스크립트·에이전트는 초안만 보여 줍니다.
 5. 다음 분석에서 적용한 하네스의 신호가 다시 나왔는지 알려 줍니다.
 
@@ -31,7 +31,7 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 
 플러그인 데이터 폴더(없으면 `~/.claude/harness-creator/`)에 폴더 0700, 파일 0600으로 둡니다. 이벤트는 30일 뒤 지웁니다. 통계 수집은 없고, 네트워크는 내 `claude` CLI 호출뿐입니다. 폴더 위치는 `/harness-creator where`로 확인합니다.
 
-`/harness-creator forget`은 수집한 것을 지웁니다. 대상은 `cursor.json`(수집 커서), `collect-stats.json`, `events/`, `signals/`, `reports/`, `logs/`입니다. `config.json`(동의와 설정), `decisions.jsonl`(기각한 신호는 발생 횟수가 두 배가 될 때까지 다시 제안하지 않기 위한 기록), `applied.jsonl`과 `backups/`(`undo`에 필요), 직접 만든 `disabled` 킬스위치 파일은 남깁니다.
+`/harness-creator forget`은 수집한 것을 지웁니다. 대상은 `cursor.json`(수집 커서), `collect-stats.json`, `events/`, `signals/`, `reports/`, `logs/`, 그리고 적용 계획과 초안을 담는 `plans/`, `drafts/`입니다. `config.json`(동의와 설정), `decisions.jsonl`(기각한 신호는 발생 횟수가 두 배가 될 때까지 다시 제안하지 않기 위한 기록), `applied.jsonl`과 `backups/`(`undo`에 필요), 직접 만든 `disabled` 킬스위치 파일은 남깁니다.
 
 분석을 멈추려면 데이터 폴더에 빈 `disabled` 파일을 만들거나 `HARNESS_CREATOR_DISABLED=1`을 설정합니다.
 

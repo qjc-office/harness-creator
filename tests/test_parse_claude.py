@@ -81,7 +81,7 @@ def test_read_complete_lines(tmp_path):
     lines, end = read_complete_lines(p, 0)
     assert lines == ["a", "b"] and end == 4
 
-# --- astra r2 B2: 깨진 줄은 조용히 버리지 않고 센다 ---
+# --- 깨진 줄은 조용히 버리지 않고 센다 ---
 def _mixed(p, bad, tail=""):
     good = [{**BASE, "type": "user", "message": {"role": "user", "content": "첫째"}},
             {**BASE, "type": "user", "message": {"role": "user", "content": "둘째"}}]

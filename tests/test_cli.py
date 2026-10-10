@@ -57,7 +57,7 @@ def test_decide_unknown_id_rc2(cache):
     assert "hc-2026-10-09-99" in r.stderr
     assert "Traceback" not in r.stderr
 
-# --- astra r1 A1: 판정 입력(메모리·설명)도 수집과 같은 가림기를 거친다 ---
+# --- 판정 입력(메모리·설명)도 수집과 같은 가림기를 거친다 ---
 import os
 
 _FAKE_SECRET = "ghp_" + "Ab1" * 8   # 테스트용 가짜 토큰(접두 패턴만 맞춘다)
@@ -69,7 +69,7 @@ def test_build_requires_redactor(tmp_path):
     with pytest.raises(TypeError):
         build(tmp_path, None)
 
-# --- astra r5 E2: 러너가 쓰는 판정 하위 명령(stats-check). 0=완전, 3=불완전, 4=손상 ---
+# --- 러너가 쓰는 판정 하위 명령(stats-check). 0=완전, 3=불완전, 4=손상 ---
 import pytest
 
 @pytest.mark.parametrize("stats,rc,out", [
@@ -95,7 +95,7 @@ def test_stats_check_missing_or_unreadable_is_4(cache, content):
     r = run(cache, "stats-check")
     assert r.returncode == 4 and "Traceback" not in r.stderr
 
-# --- astra r5 E4 ---
+# --- 깨진 레코드(malformed)도 stats-check에서 불완전이다 ---
 @pytest.mark.parametrize("stats,rc,out", [
     ({"errors": 0, "deferred": 0, "malformed": 1}, 3, "malformed lines 1"),
     ({"errors": 1, "deferred": 0, "malformed": 4}, 3, "parse errors 1, malformed lines 4"),

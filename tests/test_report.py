@@ -55,7 +55,6 @@ def test_manual_forms_marked():
     assert "- 자동 적용 대상 아님(초안과 적용 방법만 안내)" in md
 
 
-# --- fix round 1 ---
 import json
 import pytest
 
@@ -149,7 +148,6 @@ def test_unknown_lang_falls_back_to_en():
     assert incomplete_reasons({**ST, "errors": 2}, lang="xx") == ["parse errors 2"]
 
 
-# --- fix round 2 ---
 def test_effects_and_error_detail_redacted(cache):
     effects = [{"candidate_id": "x " + _GHP, "recurred": True, "last_seen": "2026-10-08T00:00:00Z"}]
     md = render({"candidates": []}, ST, 0, None, lang="ko", effects=effects)

@@ -131,7 +131,7 @@ def test_propose_gives_model_no_tools():
     assert "--restricted" in call and "--permission-mode dontAsk" in call
 
 def test_propose_input_redactor_failure_renders_failure(tmp_path):
-    # astra r1 A1: 판정 입력 가림기를 못 만들면 모델을 부르지 않고 실패 리포트를 남긴다
+    # 판정 입력 가림기를 못 만들면 모델을 부르지 않고 실패 리포트를 남긴다
     marker = tmp_path / "stub-called"
     def pre(cache):
         (cache / "config.json").write_text(json.dumps({"lang": "ko", "consent": {"accepted_at": "x"},
@@ -145,7 +145,7 @@ def test_propose_input_redactor_failure_renders_failure(tmp_path):
     assert "OK report=" not in _runlog(tmp_path)
 
 def test_event_cap_exceeded_renders_failure(tmp_path):
-    # astra r1 A3: 이벤트 상한을 넘으면 탐지 실패로 보고하고 성공 하트비트를 남기지 않는다
+    # 이벤트 상한을 넘으면 탐지 실패로 보고하고 성공 하트비트를 남기지 않는다
     def two_events(cache):
         d = cache / "events"; d.mkdir(parents=True)
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -159,7 +159,7 @@ def test_event_cap_exceeded_renders_failure(tmp_path):
     assert not marker.exists()
     assert "OK report=" not in _runlog(tmp_path)
 
-# --- astra r1 A4: 파싱 실패 파일이 있으면 리포트는 남기되 성공으로 끝내지 않는다 ---
+# --- 파싱 실패 파일이 있으면 리포트는 남기되 성공으로 끝내지 않는다 ---
 def _stats_with_errors(n):
     def pre(cache):
         cache.mkdir(parents=True, exist_ok=True)
@@ -181,7 +181,7 @@ def test_zero_parse_errors_unchanged(tmp_path):
     assert _first_line(report) == "# harness-creator 리포트: 후보 없음"
     assert "OK report=" in _runlog(tmp_path)
 
-# --- astra r2 B3: 수집 통계가 없거나 손상이면 성공으로 끝내지 않는다(rc 4, 하트비트 없음) ---
+# --- 수집 통계가 없거나 손상이면 성공으로 끝내지 않는다(rc 4, 하트비트 없음) ---
 import pytest
 
 def _stats_raw(text):
@@ -207,7 +207,7 @@ def test_corrupt_collect_stats_fails_rc4(tmp_path, text):
     assert "collect-stats 손상" in _runlog(tmp_path)
     assert "수집 통계 손상" in report.read_text(encoding="utf-8")
 
-# --- astra r2 B4: 동시 실행 잠금($CACHE/run.lock, mkdir) ---
+# --- 동시 실행 잠금($CACHE/run.lock, mkdir) ---
 OK_STUB = "cat > /dev/null; printf '{\"candidates\": []}'"
 
 def _dead_pid():
@@ -322,7 +322,7 @@ def test_two_concurrent_runners_racing_on_stale_lock(tmp_path, i):
     assert len(reports) == 1
     assert not (cache / "run.lock").exists() and not list(cache.glob("run.lock.stale.*"))
 
-# --- astra r3 C1: pid 없는 잠금은 절대 회수하지 않는다 ---
+# --- pid 없는 잠금은 절대 회수하지 않는다 ---
 
 def test_pidless_old_lock_never_reclaimed_alerts(tmp_path):
     r, reports, today, report = _run(tmp_path, OK_STUB, pre=_aged(120))
@@ -358,7 +358,7 @@ def test_runner_rereads_pid_after_acquire():
     assert 'if [ "$(_hc_lock_owner)" != "$$" ]' in after and "exit 75" in after
     assert after.index("exit 75") < src[i:].index("trap _hc_cleanup EXIT")
 
-# --- astra r3 C3: 시간 제한 실행기를 timeout → gtimeout → python3 순으로 고른다 ---
+# --- 시간 제한 실행기를 timeout → gtimeout → python3 순으로 고른다 ---
 import shutil, sys as _sys
 
 def _no_timeout_path(tmp_path):
@@ -437,7 +437,7 @@ def test_real_path_timeout_fails(tmp_path):
     assert "실패" in _first_line(report)
     assert "rc=124" in _runlog(tmp_path)
 
-# --- astra r5 E2: deferred > 0 이면 rc 3, 하트비트 없음 ---
+# --- deferred > 0 이면 rc 3, 하트비트 없음 ---
 def _counts(errors=0, deferred=0, malformed=0):
     def pre(cache):
         (cache / "collect-stats.json").write_text(json.dumps(
@@ -463,7 +463,7 @@ def test_missing_deferred_key_is_corrupt_rc4(tmp_path):
     assert r.returncode == 4
     assert "OK report=" not in _runlog(tmp_path)
 
-# --- astra r5 E4: malformed > 0 이면 rc 3, 하트비트 없음. 셋 다 0이면 rc 0 + 하트비트 ---
+# --- malformed > 0 이면 rc 3, 하트비트 없음. 셋 다 0이면 rc 0 + 하트비트 ---
 @pytest.mark.parametrize("kw,first,fail", [
     ({"malformed": 2}, "(불완전: 깨진 레코드 2줄)", "incomplete: malformed lines 2"),
     ({"errors": 1, "deferred": 1, "malformed": 1}, "(불완전: 파싱 실패 파일 1개, 미처리 파일 1개, 깨진 레코드 1줄)",
@@ -561,7 +561,7 @@ def test_report_language_from_signal_scope_when_config_lang_unset(tmp_path):
     en = json.loads((SCRIPTS.parent / "hc" / "lang" / "en.json").read_text(encoding="utf-8"))
     assert _first_line(report) == en["report"]["title_none"]
 
-# --- fix round 1: 설정 형식 오류는 원인대로 실패 리포트, 스텁도 격리 플래그를 받는다 ---
+# --- 설정 형식 오류는 원인대로 실패 리포트, 스텁도 격리 플래그를 받는다 ---
 def _seed_stats_text(cache):
     return (cache / "collect-stats.json").read_text()
 

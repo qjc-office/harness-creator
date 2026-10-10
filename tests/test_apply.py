@@ -29,7 +29,7 @@ def _cand(form="rule", path="rules/x.md", cid=CID, **kw):
 RULE = "---\nname: x\ndescription: d\npaths:\n  - \"src/**\"\ngenerated_by: harness-creator\ngenerated_at: 2026-10-09\ncandidate_id: hc-2026-10-09-01\n---\n# X\n"
 HOOK = "#!/bin/bash\n# generated_by: harness-creator\n# candidate_id: hc-2026-10-09-01\ncat >/dev/null\nexit 0\n"
 
-# 판정(fix round 4, 구조 전환): rule·skill frontmatter 는 초안 것을 버리고 apply 가 고정 키로 만든다.
+# 판정(구조 전환): rule·skill frontmatter 는 초안 것을 버리고 apply 가 고정 키로 만든다.
 # 아래 헬퍼는 그 기대 블록과, Claude Code 로더처럼 자른(첫 `---` 에서 끝) 결과를 엄격하게 읽는 판독기다.
 _LOADER = re.compile(r"---\s*\n([\s\S]*?)---\s*\n?")
 
@@ -78,7 +78,7 @@ def test_write_and_undo_create(cache, home):
     _approve(cache, _cand())
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
     entry = A.write(CID)
-    assert (home / "rules" / "x.md").read_text() == _rule_out()      # 판정 round 4: name 등 초안 키는 버리고 고정 키로 생성
+    assert (home / "rules" / "x.md").read_text() == _rule_out()      # 판정: name 등 초안 키는 버리고 고정 키로 생성
     assert entry["files"][0]["created"] is True
     assert json.loads((cache / "applied.jsonl").read_text().splitlines()[0])["candidate_id"] == CID
     A.undo(CID)
@@ -108,14 +108,14 @@ def test_human_file_modify_keeps_no_marker(cache, home):
     ok = "---\nname: x\npaths:\n  - \"a/**\"\n---\n사람이 쓴 규칙\n보강 한 줄\n"
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": ok})
     A.write(CID)
-    # 판정(fix round 3·4): 기존 파일 수정도 paths 는 승인 범위로, frontmatter 는 고정 키로 새로 만들고 표지는 넣지 않는다
+    # 판정: 기존 파일 수정도 paths 는 승인 범위로, frontmatter 는 고정 키로 새로 만들고 표지는 넣지 않는다
     # (초안에 description 이 없어 후보 제목 "t" 로 채운다)
     assert (home / "rules" / "x.md").read_text() == _rule_out("사람이 쓴 규칙\n보강 한 줄\n", desc="t", marked=False)
     A.undo(CID)
     assert (home / "rules" / "x.md").read_text().endswith("사람이 쓴 규칙\n")
 
 def test_rule_without_paths_gets_approved_paths(cache, home):
-    # 판정 round 4: 초안 frontmatter 를 버리고 승인 paths 로 만들므로, 초안에 paths 가 없어도 상시 로드 rule 이 되지 않는다
+    # 판정: 초안 frontmatter 를 버리고 승인 paths 로 만들므로, 초안에 paths 가 없어도 상시 로드 rule 이 되지 않는다
     # (브리프 원안 기대값 "쓰기 뒤 검증 거부"는 이 구조에서 생길 수 없어 바꿈)
     _approve(cache, _cand())
     bad = RULE.replace('paths:\n  - "src/**"\n', "")
@@ -130,7 +130,7 @@ def test_global_rule_allowed_without_paths(cache, home):
     assert (home / "rules" / "x.md").exists()
 
 def test_skill_description_falls_back_to_title(cache, home):
-    # 판정 round 4: name·description 은 초안에서 못 얻으면 후보 제목으로 채운다(브리프 원안 기대값 "거부"에서 바꿈)
+    # 판정: name·description 은 초안에서 못 얻으면 후보 제목으로 채운다(브리프 원안 기대값 "거부"에서 바꿈)
     _approve(cache, _cand(form="skill", path="skills/s/SKILL.md"))
     A.plan({"candidate_id": CID, "form": "skill", "path": "skills/s/SKILL.md",
             "content": "---\nname: s\ngenerated_by: harness-creator\n---\n"})
@@ -379,7 +379,6 @@ def test_cli_apply_roundtrip(cache, home, tmp_path):
     r = subprocess.run([sys.executable, cli, "undo", CID], capture_output=True, text=True, env=env)
     assert r.returncode == 7 and "적용 오류" in r.stderr
 
-# ---- fix round 1 ----
 
 def _rewrite_cands(cache, c):
     (cache / "reports" / "2026-10-09.candidates.json").write_text(json.dumps({"candidates": [c]}))
@@ -487,7 +486,6 @@ def test_static_check_dev_tcp():
     assert "network" in A.static_check(HOOK + "exec 3<>/dev/tcp/example.com/80\n")
     assert "network" in A.static_check(HOOK + "echo x > /dev/udp/1.2.3.4/53\n")
 
-# ---- fix round 2 ----
 
 SKILL_OLD = "---\nname: a\ndescription: 옛 A\ngenerated_by: harness-creator\n---\n옛 A 본문\n"
 SKILL_NEW = "---\nname: a\ndescription: 새 A\ngenerated_by: harness-creator\n---\n새 A 본문\n"
@@ -517,7 +515,7 @@ def test_backup_name_bound_to_rel(cache, home):
     b = A.write(CID)["files"][0]["backup"]
     assert hashlib.sha256(b"rules/x.md").hexdigest()[:16] in os.path.basename(b)
 
-# 판정(fix round 3): 대조가 아니라 정규형 강제. 초안 paths 가 무엇이든 최종 파일은 승인 paths 정규형이다.
+# 판정: 대조가 아니라 정규형 강제. 초안 paths 가 무엇이든 최종 파일은 승인 paths 정규형이다.
 @pytest.mark.parametrize("paths_block", [
     'paths: "**"\n', 'paths:\n  - "src/**"\n  - "**"\n', "paths: [lib/**]\n",              # 확장
     'paths: ["src/**"]\n', "paths: src/**\n", "paths:\n- 'src/**'\n",                       # 일치 변주
@@ -530,9 +528,9 @@ def test_rule_paths_forced_to_approved_canonical(cache, home, paths_block):
     draft = RULE.replace('paths:\n  - "src/**"\n', paths_block)
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": draft})
     A.write(CID)
-    assert (home / "rules" / "x.md").read_text() == _rule_out()    # round 4: 고정 키로 생성(description 은 초안 값)
+    assert (home / "rules" / "x.md").read_text() == _rule_out()    # 고정 키로 생성(description 은 초안 값)
 
-# ---- fix round 3: 정규형 강제 ----
+# ---- 정규형 강제 ----
 
 def test_p4_existing_wide_paths_replaced(cache, home):
     (home / "rules" / "x.md").write_text('---\nname: x\npaths: "**"\n---\n사람\n')
@@ -570,8 +568,8 @@ def test_global_rule_paths_removed(cache, home):
     t = (home / "rules" / "x.md").read_text()
     assert "paths" not in t and t == _rule_out(paths=())
 
-# 판정 round 4: 초안 frontmatter 는 버리므로 YAML 형식이 무엇이든 거부하지 않고, 최종 paths 는 승인 집합이다
-# (round 3 의 "단순하지 않은 frontmatter 거부" 기대값을 바꿈)
+# 판정: 초안 frontmatter 는 버리므로 YAML 형식이 무엇이든 거부하지 않고, 최종 paths 는 승인 집합이다
+# (이전 "단순하지 않은 frontmatter 거부" 기대값을 바꿈)
 @pytest.mark.parametrize("bad", [
     'base: &b\n  paths: "**"\n<<: *b\n',          # 병합 키·앵커
     '"paths": "**"\n',                             # 따옴표 키
@@ -597,7 +595,7 @@ def test_odd_draft_frontmatter_discarded(cache, home, draft):
     t = (home / "rules" / "x.md").read_text()
     assert _loader_fm(t)["paths"] == ["src/**"] and t.endswith("\n---\n# X\n")
 
-# ---- fix round 4: 로더 정규식(첫 `---` 에서 끝, YAML 실패면 {}) 대응 ----
+# ---- 로더 정규식(첫 `---` 에서 끝, YAML 실패면 {}) 대응 ----
 
 _Y = {
     "Y1": "---\nname: x\ndescription: d ---\npaths: src/**\ngenerated_by: harness-creator\n---\n# X\n",

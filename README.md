@@ -13,7 +13,7 @@ Then run `/harness-creator`. Requires Python 3.9+ and a Claude Code version whos
 
 ## What it does
 
-1. First run asks for consent: which sessions are read, what is sent, how big, and whether to include Codex.
+1. First run asks for consent: which sessions are read, what is sent, how big, and whether to include Codex. If you include Codex, masked Codex excerpts are also sent for judging to your `claude` CLI, that is, to Anthropic.
 2. Collects the last 7 days, masks secrets and personal data at collection time, detects signals, and drops stale signals, batch-run inflation, Codex-only issues, weakly supported always-loaded rules, and anything past 3 candidates.
 3. Sends masked excerpts once to your own `claude` CLI with no tools, no MCP servers and your settings ignored (`--restricted --tools ""`).
 4. Shows candidates; you pick. Approved rules, skills and hooks are written to `~/.claude` after you see the diff. Memory, script and agent ideas are shown as drafts only.
@@ -31,7 +31,7 @@ Look closely before approving a rule whose globs match almost everything (for ex
 
 Stored in the plugin data folder (or `~/.claude/harness-creator/`), folder 0700 and files 0600. Events are deleted after 30 days. No telemetry; the only network call is your `claude` CLI. `/harness-creator where` prints the folder.
 
-`/harness-creator forget` deletes what was collected: `cursor.json` (the collection cursor), `collect-stats.json`, `events/`, `signals/`, `reports/` and `logs/`. It keeps `config.json` (your consent and settings), `decisions.jsonl` (a rejected signal stays quiet until it happens twice as often), `applied.jsonl` and `backups/` (so `undo` still works), and the `disabled` kill switch file if you created one.
+`/harness-creator forget` deletes what was collected: `cursor.json` (the collection cursor), `collect-stats.json`, `events/`, `signals/`, `reports/`, `logs/`, and the apply plans and drafts in `plans/` and `drafts/`. It keeps `config.json` (your consent and settings), `decisions.jsonl` (a rejected signal stays quiet until it happens twice as often), `applied.jsonl` and `backups/` (so `undo` still works), and the `disabled` kill switch file if you created one.
 
 To stop the plugin from running analysis, create an empty file named `disabled` in the data folder or set `HARNESS_CREATOR_DISABLED=1`.
 

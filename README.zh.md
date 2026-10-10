@@ -13,7 +13,7 @@
 
 ## 功能
 
-1. 首次运行时请求同意: 读取哪些会话、发送什么、多大, 以及是否包含 Codex。
+1. 首次运行时请求同意: 读取哪些会话、发送什么、多大, 以及是否包含 Codex。如果包含 Codex, 遮盖后的 Codex 会话摘录也会通过你的 `claude` CLI 发送给 Anthropic 进行判定。
 2. 收集最近 7 天, 在收集时遮盖机密和个人信息并检测信号。已解决的信号、批量运行造成的虚高、仅 Codex 的问题、依据不足的常驻规则以及超过 3 个的候选会被代码过滤。
 3. 把遮盖后的摘录发送一次到你自己的 `claude` CLI, 不提供任何工具和 MCP 服务器, 并忽略你的设置 (`--restricted --tools ""`)。
 4. 展示候选由你选择。批准的规则、技能和钩子在你看过 diff 后写入 `~/.claude`。记忆、脚本和代理只给出草稿。
@@ -31,7 +31,7 @@
 
 保存在插件数据目录 (或 `~/.claude/harness-creator/`), 目录 0700, 文件 0600, 事件 30 天后删除。没有遥测, 唯一的网络调用是你的 `claude` CLI。用 `/harness-creator where` 查看目录位置。
 
-`/harness-creator forget` 删除已收集的数据: `cursor.json` (收集游标)、`collect-stats.json`、`events/`、`signals/`、`reports/` 和 `logs/`。保留 `config.json` (你的同意和设置)、`decisions.jsonl` (被拒绝的信号在出现次数翻倍之前不会再次提出)、`applied.jsonl` 和 `backups/` (`undo` 需要), 以及你创建的 `disabled` 停用开关文件。
+`/harness-creator forget` 删除已收集的数据: `cursor.json` (收集游标)、`collect-stats.json`、`events/`、`signals/`、`reports/`、`logs/`, 以及存放应用计划和草稿的 `plans/`、`drafts/`。保留 `config.json` (你的同意和设置)、`decisions.jsonl` (被拒绝的信号在出现次数翻倍之前不会再次提出)、`applied.jsonl` 和 `backups/` (`undo` 需要), 以及你创建的 `disabled` 停用开关文件。
 
 要停止分析, 在数据目录中创建空文件 `disabled`, 或设置 `HARNESS_CREATOR_DISABLED=1`。
 
