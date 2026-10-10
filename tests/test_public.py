@@ -122,13 +122,43 @@ def test_readme_consent_and_forget_details():
         assert "plans/" in t and "drafts/" in t, n
     assert "돕니다" not in (ROOT / "README.ko.md").read_text(encoding="utf-8")
 
-def test_no_internal_review_labels_or_client_style_names():
+def _label_pattern():
     import re
-    pat = re.compile("ast" + "ra|" + r"[A-Za-z가-힣]-a" + r"x\b|\bfix" + r" round\b|\bfinal" + r" fix\b", re.I)
+    ci = re.compile("ast" + "ra|" + "-a" + r"x\b|\bfix" + r" round\b|\bfinal" + r" fix\b", re.I)
+    cs = re.compile(r"(?<![A-Za-z0-9])r\d+ [A-Z]\d+(?![A-Za-z0-9])")                  # 라운드·항목 표기(rN XN)
+    return lambda line: bool(ci.search(line) or cs.search(line))
+
+def test_label_pattern_catches_known_forms():
+    hit = _label_pattern()
+    for s in ("# r" + "5 E4로 판정 변경", "고객 폴더 경로(<고객>-a" + "x 등)", "[NAME]-a" + "x", "가나다-a" + "x",
+              "# --- ast" + "ra r" + "1 A2: x ---", "fix" + " round 3", "final" + " fix I2"):
+        assert hit(s), s
+    for s in ("max_retries", "r5 is fine", "relax", "-axis"):
+        assert not hit(s), s
+
+def test_no_internal_review_labels_or_client_style_names():
+    hit = _label_pattern()
     hits = []
     for p in _cp().files():
         if p.is_file() and p.suffix in (".py", ".md", ".json", ".sh", ".yml"):
             for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-                if pat.search(line):
+                if hit(line):
                     hits.append(f"{p.relative_to(ROOT)}:{i}")
     assert hits == []
+
+def test_nfkc_and_hyphenless_forms_are_caught():
+    cp = _cp()
+    hs, lens = cp.build_sets(["load-queue-name", "corp-internal", "forbiddenword"])
+    assert cp.scan_text("class LoadQueueName:", hs, lens) == [1]         # 하이픈 없는 캐멀 표기
+    assert cp.scan_text("see corpinternal2 here", hs, lens) == [1]      # 하이픈 없이 붙고 숫자 접미
+    fw = "".join(chr(ord(c) + 0xFEE0) for c in "forbiddenword")            # 전각 문자
+    assert cp.scan_text("x " + fw + " y", hs, lens) == [1]
+    assert cp.scan_text("load queue name, corp internal", hs, lens) == []
+
+def test_build_output_matches_build_sets(capsys):
+    cp = _cp()
+    assert cp.main(["--build", "a-bc-de", "zz-top"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    hs, lens = cp.build_sets(["a-bc-de", "zz-top"])
+    assert {l for l in out if not l.startswith("#")} == hs
+    assert [l for l in out if l.startswith("# lengths:")] == ["# lengths: " + ",".join(map(str, sorted(lens)))]
