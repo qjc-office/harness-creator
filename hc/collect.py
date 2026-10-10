@@ -125,7 +125,7 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
                     else:
                         sid, wd = (c.get("session_id"), c.get("cwd")) if start and c.get("session_id") else parse_codex.read_meta(p)
                         res = parse_codex.parse(p, start, sid, wd)
-                    # cwd·tool 도 가린다: 고객 폴더 경로(<고객>-ax 등)와 MCP 도구 이름에 실명·토큰이 들어갈 수 있다
+                    # cwd·tool 도 가린다: 프로젝트 폴더 이름과 MCP 도구 이름에 실명·토큰이 들어갈 수 있다
                     lines = [dumps(type(e)(**{**asdict(e), "text": red.redact(e.text), "cwd": red.redact(e.cwd),
                                               "tool": red.redact(e.tool)})) + "\n"
                              for e in res.events]

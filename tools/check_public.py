@@ -2,12 +2,15 @@
 """공개 저장소 금지어 검사. 금지어는 sha256 해시로만 둔다(목록 자체가 공개되지 않게).
 공개 대상 파일(git 추적 + 미추적, .gitignore로 뺀 것 제외)의 내용과 저장소 상대 경로를 검사한다.
 
-비교 단위(대소문자 무시, `_`·`.`은 `-`로 맞춘 뒤):
+비교 단위(NFKC 정규화·대소문자 무시, `_`·`.`은 `-`로 맞춘 뒤):
 - 토큰 전체와 `-`·숫자 경계로 쪼갠 조각
 - 금지어 길이 집합(forbidden.sha256 의 `# lengths:` 줄)에 든 길이의 토큰 내 부분 문자열 전부
   (금지어에 접두·접미·숫자가 붙어 한 토큰이 된 형태를 잡는다)
+- 위를 토큰에서 `-`를 뺀 형태에도 한다. 해시 목록에는 금지어 원형과 `-`를 뺀 형태가 함께 있다
+  (CamelCase·붙여 쓴 표기와 전각 문자를 잡는다)
+범위 밖: 공백으로 띄운 형태, 0/o 같은 글자 바꿔치기, 비ASCII 금지어.
 비UTF-8 바이트는 대체 문자로 읽어 계속 검사한다. 경로 이름에서 걸리면 `<경로>:0`으로 출력한다."""
-import hashlib, pathlib, re, subprocess, sys
+import hashlib, pathlib, re, subprocess, sys, unicodedata
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HASHES = ROOT / "tools" / "forbidden.sha256"
@@ -16,10 +19,19 @@ PIECE = re.compile(r"[a-z]+|[0-9]+")
 _cache = {}
 
 def _norm(text: str) -> str:
-    return text.lower().replace("_", "-").replace(".", "-")
+    return unicodedata.normalize("NFKC", text).lower().replace("_", "-").replace(".", "-")
 
 def digest(word: str) -> str:
     return hashlib.sha256(_norm(word).encode("utf-8")).hexdigest()
+
+def _forms(word: str) -> set:
+    w = _norm(word)
+    return {w, w.replace("-", "")}
+
+def build_sets(words) -> tuple:
+    """금지어 목록 → (해시 집합, 길이 집합). 원형과 `-`를 뺀 형태 둘 다 넣는다."""
+    forms = {f for w in words for f in _forms(w) if f}
+    return {hashlib.sha256(f.encode("utf-8")).hexdigest() for f in forms}, {len(f) for f in forms}
 
 def _hit(word: str, hashes: set) -> bool:
     h = _cache.get(word)
@@ -41,8 +53,10 @@ def _candidates(token: str, lengths) -> set:
     for part in token.split("-"):
         out.add(part)
         out.update(PIECE.findall(part))
-    for n in lengths or ():
-        out.update(token[i:i + n] for i in range(len(token) - n + 1))
+    for form in {token, token.replace("-", "")}:
+        out.add(form)
+        for n in lengths or ():
+            out.update(form[i:i + n] for i in range(len(form) - n + 1))
     return out
 
 def _line_hit(line: str, hashes: set, lengths) -> bool:
@@ -66,10 +80,11 @@ def main(argv) -> int:
             print(digest(w))
         return 0
     if argv[:1] == ["--build"]:          # 해시 파일 전체(머리말·길이·해시)를 출력한다
-        print("# forbidden tokens (sha256 of normalized lowercase token). Do not add plain words here.")
-        print("# lengths: " + ",".join(str(n) for n in sorted({len(w) for w in argv[1:]})))
-        for w in argv[1:]:
-            print(digest(w))
+        hashes, lengths = build_sets(argv[1:])
+        print("# forbidden tokens (sha256 of NFKC lowercase token, also without '-'). Do not add plain words here.")
+        print("# lengths: " + ",".join(str(n) for n in sorted(lengths)))
+        for h in sorted(hashes):
+            print(h)
         return 0
     hashes, lengths, bad = load_hashes(), load_lengths(), 0
     for p in files():

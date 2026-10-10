@@ -381,7 +381,7 @@ def test_malformed_warning_in_header():
     md = render({"candidates": []}, _stats(errors=0, malformed=3), 0, None)
     assert "> 경고: 깨진 레코드 3줄 건너뜀(형식 오류, 재시도 불가)." in md
     assert md.index("깨진 레코드") < (md.index("\n## ") if "\n## " in md else len(md))
-    # r5 E4로 판정 변경: 깨진 레코드도 불완전이다(경고 줄은 유지)
+    # 판정 변경: 깨진 레코드도 불완전이다(경고 줄은 유지)
     assert _first(md) == "# harness-creator 리포트: 후보 없음 (불완전: 깨진 레코드 3줄)"
 
 @pytest.mark.parametrize("m", [0, None, "3", True, -2])
