@@ -118,7 +118,7 @@ def test_missing_claude_renders_failure_report(tmp_path):
 def test_propose_gives_model_no_tools():
     src = RUNNER.read_text(encoding="utf-8")
     assert "dangerously-skip-permissions" not in src
-    assert "--restricted" in src
+    assert "--restricted" in src and "--safe-mode" in src
     assert '--tools ""' in src
     assert "--permission-mode dontAsk" in src
     assert "--strict-mcp-config" in src
@@ -406,7 +406,7 @@ def test_real_path_uses_resolved_timeout_runner():
 # 그 밖의 호출에서는 받은 인자를 기록한 뒤 stdin을 읽고 JSON을 낸다. 경로는 config judge.claude_bin으로 넘긴다.
 def _real_path(tmp_path, claude_body, extra=None, no_timeout=False):
     fake = tmp_path / "fake-claude"
-    fake.write_text("#!/bin/bash\nif [ \"$1\" = --help ]; then echo '  --restricted  Restricted mode'; exit 0; fi\n"
+    fake.write_text("#!/bin/bash\nif [ \"$1\" = --help ]; then echo '  --restricted  Restricted mode'; echo '  --safe-mode  Safe mode'; exit 0; fi\n"
                     "printf '%s\\n' \"$@\" > \"$(dirname \"$0\")/claude-argv.txt\"\n" + claude_body + "\n")
     fake.chmod(0o755)
     def pre(cache):
@@ -424,7 +424,7 @@ def test_real_path_runs_fake_claude(tmp_path, no_timeout):
     assert r.returncode == 0, r.stderr + _runlog(tmp_path)
     assert "후보 없음" in _first_line(report)
     argv = (tmp_path / "claude-argv.txt").read_text(encoding="utf-8").split("\n")
-    assert argv[0] == "-p" and "--restricted" in argv and "--strict-mcp-config" in argv
+    assert argv[0] == "-p" and "--restricted" in argv and "--strict-mcp-config" in argv and "--safe-mode" in argv
     assert argv[argv.index("--tools") + 1] == ""                 # 도구 0개
     assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
     assert argv[argv.index("--output-format") + 1] == "json"
@@ -650,3 +650,52 @@ def test_stub_receives_isolation_flags(tmp_path):
     assert argv[argv.index("--tools") + 1] == ""
     assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
     assert argv[argv.index("--output-format") + 1] == "json"
+
+
+# --- 판정 격리: --safe-mode(CLAUDE.md·스킬·플러그인·훅 끔) + 빈 임시 폴더를 cwd로 ---
+def test_stub_runs_with_safe_mode_in_empty_temp_cwd(tmp_path):
+    rec = tmp_path / "stub-env.txt"
+    body = (f'{{ pwd; ls -A | wc -l; printf "%s\\n" "$@"; }} > {rec}; ' + OK_STUB)
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    lines = rec.read_text(encoding="utf-8").split("\n")
+    cwd, n = lines[0], lines[1].strip()
+    assert n == "0"                                                # 판정 cwd 는 비어 있다
+    assert cwd != str(SCRIPTS.parent) and not cwd.startswith(str(tmp_path / "cache"))
+    assert "--safe-mode" in lines[2:]
+    assert not pathlib.Path(cwd).exists()                          # 끝나면 지운다
+
+def test_cli_without_safe_mode_is_cli_upgrade_failure(tmp_path):
+    fake = tmp_path / "old-claude"
+    fake.write_text("#!/bin/bash\nif [ \"$1\" = --help ]; then echo '  --restricted  Restricted mode'; exit 0; fi\n"
+                    "touch \"$0.called\"\n")
+    fake.chmod(0o755)
+    def pre(cache):
+        (cache / "config.json").write_text(json.dumps({"lang": "ko", "consent": {"accepted_at": "x"},
+                                                       "judge": {"claude_bin": str(fake)}}))
+    r, reports, today, report = _run(tmp_path, None, pre=pre)
+    assert r.returncode == 1
+    assert _first_line(report) == "# harness-creator 리포트: 실패 (CLI 업그레이드 필요)"
+    assert not (tmp_path / "old-claude.called").exists()
+
+_BUILTIN = [{"name": "cc-plugin-x", "path": "builtin", "source": "cc-plugin-x@builtin"}]
+
+@pytest.mark.parametrize("extra", [
+    {"plugins": _BUILTIN + [{"name": "p", "path": "/somewhere/p", "source": "p@market"}]},
+    {"plugins": _BUILTIN, "memory_paths": ["/somewhere/CLAUDE.md"]},
+    {"plugins": _BUILTIN, "memory": "notes"},
+])
+def test_verbose_array_init_plugins_or_memory_fails(tmp_path, extra):
+    init = {"type": "system", "subtype": "init", "tools": [], "mcp_servers": [], **extra}
+    body = _array_stub(tmp_path, [init, {"type": "result", "is_error": False, "result": "{\"candidates\": []}"}])
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2 and "isolation" in report.read_text(encoding="utf-8")
+    assert "격리 위반" in _runlog(tmp_path)
+
+def test_verbose_array_init_builtin_plugins_only_passes(tmp_path):
+    # 2.1.296 --safe-mode 실측 형태: 내장 플러그인만, memory 필드 없음
+    init = {"type": "system", "subtype": "init", "tools": [], "mcp_servers": [], "plugins": _BUILTIN,
+            "skills": ["debug"], "agents": ["Explore"]}
+    body = _array_stub(tmp_path, [init, {"type": "result", "is_error": False, "result": "{\"candidates\": []}"}])
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)

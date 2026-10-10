@@ -22,6 +22,7 @@ STUB="${HC_CLAUDE_STUB:-}"
 PF="$DATA/reports/$TODAY.propose.prompt.txt"
 RAW="$DATA/reports/$TODAY.propose.raw.txt"
 LOCK="$DATA/run.lock"
+JCWD=""   # 판정 호출용 빈 임시 폴더(cwd). 프로젝트 CLAUDE.md·.claude/ 가 판정에 실리지 않게 한다
 _log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
 _fail() { _log "FAIL $*"; printf 'harness-creator: %s\n' "$*" >&2; }
 _render_err() { "${CLI[@]}" render --error-kind "$1" --error "${2:-}" >> "$LOG" 2>&1; }
@@ -63,6 +64,7 @@ printf '%s\n' "$$" > "$LOCK/pid.tmp.$$" && mv -f "$LOCK/pid.tmp.$$" "$LOCK/pid"
 if [ "$(_hc_lock_owner)" != "$$" ]; then _log "잠금 주인이 바뀜(pid=$(_hc_lock_owner))"; exit 75; fi
 _hc_cleanup() {
   rm -f "$PF" "$RAW"
+  [ -n "$JCWD" ] && rm -rf "${JCWD:?}"
   if [ "$(_hc_lock_owner)" = "$$" ]; then rm -rf "${LOCK:?}"; fi
 }
 trap _hc_cleanup EXIT
@@ -131,17 +133,23 @@ _log "시간 제한 실행기: $(basename "${TO[0]}") ${PROPOSE_TIMEOUT}s"
 rm -f "${JUDGED:?}" "${RAW:?}"
 { sed -e "s#{TODAY}#$TODAY#g" -e "s#{LANG}#$LANG_OUT#g" "$HERE/propose-prompt.md"; cat "$INPUT"; } > "$PF"
 # 판정 모델에는 도구를 하나도 주지 않는다. 입력이 세션 기록이라 프롬프트 주입이 가능하므로 파일 쓰기는 셸이 한다.
-# --restricted 로 사용자 settings 를 무시하고, --tools "" 로 내장 도구를 끄고, --disallowedTools 를 2차 방어선으로 둔다.
+# --restricted 로 사용자 settings 를 무시하고, --safe-mode 로 CLAUDE.md·스킬·설치 플러그인·훅을 끄고,
+# --tools "" 로 내장 도구를 끄고, --disallowedTools 를 2차 방어선으로 둔다. cwd 는 빈 임시 폴더다.
 # 가변 인자 플래그(--tools·--disallowedTools)는 맨 뒤에 둔다. 플래그를 빼고 돌리는 대체 경로는 두지 않는다.
 ISO=(-p --output-format json --model "$MODEL" \
-  --restricted --permission-mode dontAsk \
+  --restricted --safe-mode --permission-mode dontAsk \
   --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
   --tools "" \
   --disallowedTools "Bash,Read,Write,Edit,MultiEdit,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Agent,Task,Skill,TodoWrite,Monitor,SendMessage,Artifact,ArtifactData,ArtifactComments,ToolSearch,EnterWorktree,ExitWorktree,CronCreate,RemoteTrigger,TaskStop,PushNotification,ScheduleWakeup")
 rc=0
+if ! JCWD="$(mktemp -d "${TMPDIR:-/tmp}/hc-judge.XXXXXX")" || [ -z "$JCWD" ]; then
+  JCWD=""; _render_err judge "rc=1"; _fail "판정용 임시 폴더를 만들지 못함"; exit 2
+fi
+case "$CLAUDE" in ''|/*) ;; *) CLAUDE="$PWD/$CLAUDE" ;; esac
+case "$STUB" in ''|/*) ;; *) STUB="$PWD/$STUB" ;; esac
 if [ -n "$STUB" ]; then
   # 테스트 전용 경로. 실제 claude와 같은 ISO 플래그를 넘겨 격리 인자가 빠지지 않았는지 테스트가 본다
-  "${TO[@]}" "$STUB" "${ISO[@]}" < "$PF" > "$RAW" 2>> "$LOG"
+  ( cd "$JCWD" && exec "${TO[@]}" "$STUB" "${ISO[@]}" ) < "$PF" > "$RAW" 2>> "$LOG"
   rc=$?
 else
   if [ -z "$CLAUDE" ] || [ ! -x "$CLAUDE" ]; then
@@ -152,7 +160,11 @@ else
     *--restricted*) ;;
     *) _render_err cli_upgrade; _fail "claude --help 에 --restricted 없음"; exit 1 ;;
   esac
-  "${TO[@]}" "$CLAUDE" "${ISO[@]}" < "$PF" > "$RAW" 2>> "$LOG"
+  case "$HELP" in
+    *--safe-mode*) ;;
+    *) _render_err cli_upgrade; _fail "claude --help 에 --safe-mode 없음"; exit 1 ;;
+  esac
+  ( cd "$JCWD" && exec "${TO[@]}" "$CLAUDE" "${ISO[@]}" ) < "$PF" > "$RAW" 2>> "$LOG"
   rc=$?
 fi
 rm -f "${PF:?}"
@@ -176,12 +188,20 @@ except ValueError:
     env = None
 # CLI 전역 설정 verbose=true 면 json 출력이 메시지 배열이 된다(--restricted 로도 안 꺼짐). 마지막 result 원소만 쓴다
 if isinstance(env, list):
-    # 배열에는 init 원소가 실린다. 있으면 판정 격리(도구 0개·MCP 서버 0개)를 한 번 더 확인한다(이중 방어)
+    # 배열에는 init 원소가 실린다. 있으면 판정 격리를 한 번 더 확인한다(이중 방어):
+    # 도구 0개·MCP 서버 0개, plugins 필드가 있으면 내장(builtin)만, memory 관련 필드가 있으면 비어 있음
+    def _builtin(pl):
+        return isinstance(pl, dict) and (pl.get("path") == "builtin" or str(pl.get("source", "")).endswith("@builtin"))
     for m in env:
         if isinstance(m, dict) and m.get("type") == "system" and m.get("subtype") == "init":
-            if m.get("tools") != [] or m.get("mcp_servers") != []:
+            bad = m.get("tools") != [] or m.get("mcp_servers") != []
+            if "plugins" in m:
+                pls = m.get("plugins")
+                bad = bad or not isinstance(pls, list) or not all(_builtin(pl) for pl in pls)
+            bad = bad or any(m.get(k) for k in m if "memory" in str(k).lower())
+            if bad:
                 _write(text)
-                print("판정 격리 위반: init 의 tools·mcp_servers 가 비어 있지 않음", file=sys.stderr)
+                print("판정 격리 위반: init 의 tools·mcp_servers·plugins·memory 가 격리 조건 밖", file=sys.stderr)
                 sys.exit(3)
     res = [m for m in env if isinstance(m, dict) and m.get("type") == "result"]
     if not res:

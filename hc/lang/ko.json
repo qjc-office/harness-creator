@@ -49,7 +49,7 @@
     "err_detect": "신호 탐지 실패 {detail}",
     "err_input": "판정 입력 생성 실패 {detail}",
     "err_no_claude": "claude CLI를 찾지 못함 {detail}",
-    "err_cli_upgrade": "claude --help에 --restricted 가 없다. Claude Code를 업그레이드한다. {detail}",
+    "err_cli_upgrade": "claude --help에 --restricted 또는 --safe-mode 가 없다. Claude Code를 업그레이드한다. {detail}",
     "err_judge": "후보 판정 실패 또는 스키마 검증 실패 {detail}",
     "err_gate": "후보 거르기 실패 {detail}",
     "err_timeout_runner": "시간 제한 실행기 없음(timeout·gtimeout·python3) {detail}",

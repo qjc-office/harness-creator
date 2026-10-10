@@ -9,13 +9,13 @@
     /plugin marketplace add qjc-office/harness-creator
     /plugin install harness-creator@harness-creator
 
-然后运行 `/harness-creator`。需要 Python 3.9+, 以及 `claude --help` 中包含 `--restricted` 的 Claude Code 版本。没有 `--restricted` 时插件完全不做判定, 报告第一行会提示需要升级 CLI。不存在去掉该参数运行判定的替代路径。
+然后运行 `/harness-creator`。需要 Python 3.9+, 以及 `claude --help` 中包含 `--restricted` 和 `--safe-mode` 的 Claude Code 版本。缺少其中任何一个时插件完全不做判定, 报告第一行会提示需要升级 CLI。不存在去掉该参数运行判定的替代路径。
 
 ## 功能
 
 1. 首次运行时请求同意: 读取哪些会话、发送什么、多大、预计收集时间范围 (按每分钟 1000 MB 估算, 显示为 N~2N 分钟), 以及是否包含 Codex。如果包含 Codex, 遮盖后的 Codex 会话摘录也会通过你的 `claude` CLI 发送给 Anthropic 进行判定。
 2. 收集最近 7 天, 在收集时遮盖机密和个人信息并检测信号。已解决的信号、批量运行造成的虚高、仅 Codex 的问题、依据不足的常驻规则以及超过 3 个的候选会被代码过滤。
-3. 把遮盖后的摘录发送一次到你自己的 `claude` CLI, 不提供任何工具和 MCP 服务器, 并忽略你的设置 (`--restricted --tools ""`)。
+3. 把遮盖后的摘录发送一次到你自己的 `claude` CLI, 不提供任何工具和 MCP 服务器, 忽略你的设置, 并关闭 CLAUDE.md、技能、插件和钩子 (`--restricted --safe-mode --tools ""`), 在空的临时目录中运行。
 4. 展示候选由你选择。批准的规则、技能和钩子在你看过 diff 后写入 `~/.claude`。记忆、脚本和代理只给出草稿。
 5. 下一次分析会报告已应用项的信号是否再次出现。
 

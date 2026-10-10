@@ -9,13 +9,13 @@
     /plugin marketplace add qjc-office/harness-creator
     /plugin install harness-creator@harness-creator
 
-설치 후 `/harness-creator`를 실행합니다. Python 3.9 이상, `claude --help`에 `--restricted`가 있는 Claude Code가 필요합니다. `--restricted`가 없으면 판정을 아예 하지 않고 리포트 첫 줄에 CLI 업그레이드가 필요하다고 적습니다. 이 플래그를 빼고 판정하는 대체 경로는 없습니다.
+설치 후 `/harness-creator`를 실행합니다. Python 3.9 이상, `claude --help`에 `--restricted`와 `--safe-mode`가 있는 Claude Code가 필요합니다. 둘 중 하나라도 없으면 판정을 아예 하지 않고 리포트 첫 줄에 CLI 업그레이드가 필요하다고 적습니다. 이 플래그를 빼고 판정하는 대체 경로는 없습니다.
 
 ## 하는 일
 
 1. 첫 실행에서 읽는 범위, 보내는 것과 크기, 예상 수집 시간 범위(분당 1000 MB 기준 추정, N~2N분으로 표시), Codex 포함 여부를 보여 주고 동의를 받습니다. Codex를 포함하면 가린 Codex 세션 발췌도 판정을 위해 내 `claude` CLI, 즉 Anthropic으로 보내집니다.
 2. 지난 7일을 수집하면서 시크릿·개인정보를 가리고 신호를 찾습니다. 이미 해소된 신호, 일괄 실행으로 부풀려진 신호, Codex에서만 생긴 문제, 근거가 약한 상시 로드 규칙, 3건을 넘는 후보는 코드가 걸러 냅니다.
-3. 가린 발췌를 내 `claude` CLI로 한 번 보냅니다. 도구 0개, MCP 서버 0개, 사용자 설정 무시(`--restricted --tools ""`)로 돌립니다.
+3. 가린 발췌를 내 `claude` CLI로 한 번 보냅니다. 도구 0개, MCP 서버 0개, 사용자 설정 무시, CLAUDE.md·스킬·플러그인·훅 끔(`--restricted --safe-mode --tools ""`)으로, 빈 임시 폴더에서 돌립니다.
 4. 후보를 보여 주고 고르게 합니다. 승인한 규칙·스킬·훅만 diff 확인 뒤 `~/.claude`에 씁니다. 메모리·스크립트·에이전트는 초안만 보여 줍니다.
 5. 다음 분석에서 적용한 하네스의 신호가 다시 나왔는지 알려 줍니다.
 

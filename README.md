@@ -9,13 +9,13 @@ A Claude Code plugin that reads your own recent Claude Code (and, if you agree, 
     /plugin marketplace add qjc-office/harness-creator
     /plugin install harness-creator@harness-creator
 
-Then run `/harness-creator`. Requires Python 3.9+ and a Claude Code version whose `claude --help` lists `--restricted`. Without `--restricted` the plugin does not judge at all: the report's first line says a CLI upgrade is needed. There is no fallback that runs the judge without it.
+Then run `/harness-creator`. Requires Python 3.9+ and a Claude Code version whose `claude --help` lists `--restricted` and `--safe-mode`. Without them the plugin does not judge at all: the report's first line says a CLI upgrade is needed. There is no fallback that runs the judge without them.
 
 ## What it does
 
 1. First run asks for consent: which sessions are read, what is sent, how big, a rough collection time range (estimated at 1000 MB per minute, shown as N-2N min), and whether to include Codex. If you include Codex, masked Codex excerpts are also sent for judging to your `claude` CLI, that is, to Anthropic.
 2. Collects the last 7 days, masks secrets and personal data at collection time, detects signals, and drops stale signals, batch-run inflation, Codex-only issues, weakly supported always-loaded rules, and anything past 3 candidates.
-3. Sends masked excerpts once to your own `claude` CLI with no tools, no MCP servers and your settings ignored (`--restricted --tools ""`).
+3. Sends masked excerpts once to your own `claude` CLI with no tools, no MCP servers, your settings ignored and your CLAUDE.md, skills, plugins and hooks off (`--restricted --safe-mode --tools ""`), from an empty temporary folder.
 4. Shows candidates; you pick. Approved rules, skills and hooks are written to `~/.claude` after you see the diff. Memory, script and agent ideas are shown as drafts only.
 5. The next analysis reports whether an applied harness's signal came back.
 

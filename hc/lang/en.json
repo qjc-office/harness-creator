@@ -47,7 +47,7 @@
     "err_detect": "signal detection failed {detail}",
     "err_input": "judge input could not be built {detail}",
     "err_no_claude": "claude CLI not found {detail}",
-    "err_cli_upgrade": "claude --help has no --restricted. Upgrade Claude Code. {detail}",
+    "err_cli_upgrade": "claude --help lacks --restricted or --safe-mode. Upgrade Claude Code. {detail}",
     "err_judge": "judging failed or schema validation failed {detail}",
     "err_gate": "candidate filtering failed {detail}",
     "err_timeout_runner": "no timeout runner (timeout, gtimeout, python3) {detail}",

@@ -46,7 +46,7 @@
     "err_detect": "信号检测失败 {detail}",
     "err_input": "无法生成判定输入 {detail}",
     "err_no_claude": "找不到 claude CLI {detail}",
-    "err_cli_upgrade": "claude --help 中没有 --restricted。请升级 Claude Code。{detail}",
+    "err_cli_upgrade": "claude --help 中没有 --restricted 或 --safe-mode。请升级 Claude Code。{detail}",
     "err_judge": "判定失败或结构校验失败 {detail}",
     "err_gate": "候选过滤失败 {detail}",
     "err_timeout_runner": "没有超时执行器 (timeout、gtimeout、python3) {detail}",
