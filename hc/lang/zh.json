@@ -59,7 +59,7 @@
     "read": "读取范围: 最近 {days} 天的 Claude Code 会话文件 {claude_files} 个 ({claude_mb} MB)。",
     "read_codex": "Codex 会话文件 {codex_files} 个 ({codex_mb} MB) 仅在你同意下方问题时读取。",
     "send": "发送内容: 仅发送已遮盖机密和个人信息的摘录, 最多 {max_kb} KB, 一次, 发送到你自己的 claude CLI (模型 {model})。不会发送到其他地方。",
-    "time": "预计时间: 收集约 {minutes} 分钟 (按文件大小估算) + 一次判定。",
+    "time": "预计时间: 收集约 {min_lo}~{min_hi} 分钟 (按文件大小估算) + 一次判定。",
     "store": "保存位置: {data_dir} (文件夹 0700, 文件 0600, 事件 30 天后删除)。",
     "codex_q": "也分析 Codex 会话吗? 如果是, 遮盖后的 Codex 对话摘录会发送到 Anthropic 模型。"
   }

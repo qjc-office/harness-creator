@@ -50,6 +50,11 @@ def _status(cfg: dict) -> dict:
             "needs_analysis": rep is None or age > cfg["report_max_age_days"], "running": _lock_running(),
             "lang": _resolve_lang(cfg, _signals_doc().get("scope"))}
 
+def _minutes_range(total_mb: float, mb_per_min) -> dict:
+    """수집 시간 추정 범위. 디스크·부하 차이가 커서 한 값 대신 N~2N분으로 보인다(과소 안내 방지)."""
+    lo = max(1, math.ceil(total_mb / max(1, mb_per_min)))
+    return {"min_lo": lo, "min_hi": 2 * lo}
+
 def _consent_text(cfg: dict) -> str:
     from hc.collect import estimate
     lang = _resolve_lang(cfg)
@@ -61,7 +66,7 @@ def _consent_text(cfg: dict) -> str:
              K["read"].format(days=cfg["days"], claude_files=e["claude"]["files"], claude_mb=mb(e["claude"]["bytes"])),
              K["read_codex"].format(codex_files=e["codex"]["files"], codex_mb=mb(e["codex"]["bytes"])),
              K["send"].format(max_kb=cfg["judge"]["max_input_bytes"] // 1024, model=cfg["judge"]["model"]),
-             K["time"].format(minutes=max(1, math.ceil(total_mb / max(1, cfg["estimate_mb_per_min"])))),
+             K["time"].format(**_minutes_range(total_mb, cfg["estimate_mb_per_min"])),
              K["store"].format(data_dir=data_dir()), "", K["codex_q"]]
     return "\n".join(lines)
 

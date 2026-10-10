@@ -287,3 +287,17 @@ def test_gate_writes_candidates_and_gates(cache, tmp_path):
     rep = cache / "reports"
     assert json.loads(next(rep.glob("*.candidates.json")).read_text())["candidates"] == []
     assert json.loads(next(rep.glob("*.gates.json")).read_text())["codex_notes"][0]["id"] == "hc-2026-10-09-01"
+
+def test_consent_time_is_range_from_default_coefficient(cache):
+    # 기본 계수 1000 MB/분, 2500 MB 상당(희소 파일) → 3분, 표시는 범위 3~6분(과소 안내 방지)
+    src = cache.parent / ".claude" / "projects" / "p"; src.mkdir(parents=True)
+    with open(src / "s.jsonl", "wb") as fh:
+        fh.truncate(2500 * 1048576)
+    cache.mkdir(exist_ok=True)
+    (cache / "config.json").write_text(json.dumps({"lang": "ko"}))
+    r = run(cache, "consent-text")
+    assert r.returncode == 0, r.stderr
+    assert "수집 약 3~6분" in r.stdout
+    for lang, want in (("en", "about 3-6 min"), ("zh", "收集约 3~6 分钟")):
+        (cache / "config.json").write_text(json.dumps({"lang": lang}))
+        assert want in run(cache, "consent-text").stdout, lang

@@ -7,7 +7,7 @@
   "events_retention_days": 30,
   "max_events": 2000000,
   "report_max_age_days": 7,
-  "estimate_mb_per_min": 2000,
+  "estimate_mb_per_min": 1000,
   "thresholds": {
     "correction": {"min_sessions": 2, "min_days": 2},
     "failure_loop": {"min_repeats_in_session": 3, "min_sessions": 2},
