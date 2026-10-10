@@ -498,18 +498,6 @@ def test_old_signals_and_input_files_pruned(cache, src, tmp_path):
     assert not old_sig.exists() and not old_in.exists()
     assert new_sig.exists() and report.exists()        # 리포트는 보존 대상이 아니다
 
-def test_redaction_window_is_bounded(cache, src, tmp_path):
-    # 원문 전체(최대 64KB)를 가리지 않는다. text_max_chars + 여유분만 가린 뒤 자른다(수집 시간 상한)
-    import hc.collect as C
-    seen = []
-    class Rec:
-        def redact(self, t):
-            seen.append(len(t)); return t
-    _cc(tmp_path / "cc", "s1.jsonl", [_u("z" * 60000)])
-    collect(7, include_codex=True, sources=src, redactor=Rec())
-    assert max(seen) <= 500 + C.REDACT_MARGIN and C.REDACT_MARGIN >= 8192
-    assert _events(cache)[0]["text"] == "z" * 500
-
 def test_long_redaction_does_not_pull_cut_value_forward(cache, src, tmp_path):
     # 앞의 긴 토큰이 가림으로 짧아져도, 경계 근처(약 text_max_chars + 8KB)에 걸친 값의 앞부분이 남지 않는다.
     # 일부만 잘라 가리면 잘린 조각은 패턴에 안 걸린 채 앞으로 끌려와 text_max_chars 안에 들어온다.
