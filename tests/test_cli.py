@@ -245,13 +245,36 @@ def test_wrap_argv_expands_tilde(cache):
     assert r.stdout.split("\0")[:3] == ["python3", str(cache.parent / "q.py"), "--"]
 
 def test_forget_keeps_config_decisions_applied_backups(cache):
+    # 지울 목록 방식: 캐시·커서·이벤트·신호·리포트·수집 통계·로그만 지운다.
+    # 킬스위치 disabled 와 run.lock(실행 중 아님)은 남긴다(분석을 끈 사용자가 forget해도 수집이 다시 켜지지 않게)
     cache.mkdir()
-    for n in ("config.json", "decisions.jsonl", "applied.jsonl", "cursor.json", "collect-stats.json"):
+    for n in ("config.json", "decisions.jsonl", "applied.jsonl", "cursor.json", "collect-stats.json", "disabled"):
         (cache / n).write_text("{}")
-    for d in ("backups", "events", "signals", "reports"):
+    for d in ("backups", "events", "signals", "reports", "logs", "run.lock"):
         (cache / d).mkdir(); (cache / d / "f").write_text("x")
     assert run(cache, "forget").returncode == 0
-    assert sorted(p.name for p in cache.iterdir()) == ["applied.jsonl", "backups", "config.json", "decisions.jsonl"]
+    assert sorted(p.name for p in cache.iterdir()) == ["applied.jsonl", "backups", "config.json", "decisions.jsonl",
+                                                       "disabled", "run.lock"]
+
+import pytest as _pytest
+
+@_pytest.mark.parametrize("run_cfg", [{"wrap": [1, "--"]}, {"wrap": "ab"}, {"wrap": ["a\u0000b", "--"]},
+                                      {"wrap": None}, "x"])
+def test_wrap_argv_rejects_bad_shape_rc6(cache, run_cfg):
+    cache.mkdir()
+    (cache / "config.json").write_text(json.dumps({"run": run_cfg}))
+    r = run(cache, "wrap-argv")
+    assert r.returncode == 6 and "Traceback" not in r.stderr and r.stdout == "", (run_cfg, r.stderr)
+    assert "run.wrap" in r.stderr
+
+@_pytest.mark.parametrize("judge", [{"timeout_s": "abc"}, {"timeout_s": True}, {"timeout_s": 1.5}, {"timeout_s": 0},
+                                    {"model": 3}, {"claude_bin": ["x"]}, {"model": "a\nb"}])
+def test_judge_argv_rejects_bad_values_rc6(cache, judge):
+    cache.mkdir()
+    (cache / "config.json").write_text(json.dumps({"judge": judge}))
+    r = run(cache, "judge-argv")
+    assert r.returncode == 6 and "Traceback" not in r.stderr and r.stdout == "", (judge, r.stderr)
+    assert "judge" in r.stderr
 
 def test_gate_writes_candidates_and_gates(cache, tmp_path):
     cache.mkdir(); (cache / "signals").mkdir()

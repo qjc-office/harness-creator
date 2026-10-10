@@ -398,7 +398,8 @@ def test_propose_timeout_yields_failure_report(tmp_path, no_bin):
 def test_real_path_uses_resolved_timeout_runner():
     src = RUNNER.read_text(encoding="utf-8")
     assert "exec timeout 1800" not in src                       # 맨 timeout 의존 제거
-    assert '"${TO[@]}" "$CLAUDE" -p' in src
+    assert '"${TO[@]}" "$CLAUDE" "${ISO[@]}"' in src
+    assert '"${TO[@]}" "$STUB" "${ISO[@]}"' in src             # 테스트 스텁도 같은 격리 플래그로 부른다
 
 # --- 실제 경로(시간 제한 실행기 → claude)를 가짜 claude로 태운다 ---
 # 실제 claude는 부르지 않는다. 가짜 claude는 --help에 --restricted를 답하고,
@@ -425,6 +426,8 @@ def test_real_path_runs_fake_claude(tmp_path, no_timeout):
     argv = (tmp_path / "claude-argv.txt").read_text(encoding="utf-8").split("\n")
     assert argv[0] == "-p" and "--restricted" in argv and "--strict-mcp-config" in argv
     assert argv[argv.index("--tools") + 1] == ""                 # 도구 0개
+    assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+    assert argv[argv.index("--output-format") + 1] == "json"
     assert ("python3" in _runlog(tmp_path)) == no_timeout
 
 def test_real_path_timeout_fails(tmp_path):
@@ -557,3 +560,47 @@ def test_report_language_from_signal_scope_when_config_lang_unset(tmp_path):
     assert r.returncode == 0, r.stderr
     en = json.loads((SCRIPTS.parent / "hc" / "lang" / "en.json").read_text(encoding="utf-8"))
     assert _first_line(report) == en["report"]["title_none"]
+
+# --- fix round 1: 설정 형식 오류는 원인대로 실패 리포트, 스텁도 격리 플래그를 받는다 ---
+def _seed_stats_text(cache):
+    return (cache / "collect-stats.json").read_text()
+
+@pytest.mark.parametrize("wrap", [[1, "--"], "ab"])
+def test_bad_wrap_fails_without_running_collect(tmp_path, wrap):
+    marker = tmp_path / "stub-called"
+    seen = {}
+    def pre(cache):
+        (cache / "config.json").write_text(json.dumps({"lang": "ko", "consent": {"accepted_at": "x"},
+                                                       "run": {"wrap": wrap}}))
+        seen["stats"] = _seed_stats_text(cache)
+    r, reports, today, report = _run(tmp_path, f"touch {marker}; {OK_STUB}", pre=pre,
+                                     extra_env={"HC_SKIP_COLLECT": "0"})
+    assert r.returncode == 6, r.stderr + _runlog(tmp_path)
+    assert "실패" in _first_line(report) and "수집 실패" in report.read_text(encoding="utf-8")
+    assert "run.wrap" in report.read_text(encoding="utf-8")
+    assert _seed_stats_text(tmp_path / "cache") == seen["stats"]       # 수집이 돌지 않았다
+    assert not marker.exists() and "OK report=" not in _runlog(tmp_path)
+    assert "Traceback" not in _runlog(tmp_path)
+
+def test_bad_judge_timeout_reports_config_error(tmp_path):
+    marker = tmp_path / "stub-called"
+    def pre(cache):
+        (cache / "config.json").write_text(json.dumps({"lang": "ko", "consent": {"accepted_at": "x"},
+                                                       "judge": {"timeout_s": "abc"}}))
+    r, reports, today, report = _run(tmp_path, f"touch {marker}; {OK_STUB}", pre=pre)
+    assert r.returncode == 6, r.stderr + _runlog(tmp_path)
+    text = report.read_text(encoding="utf-8")
+    assert "실패" in _first_line(report) and "설정 오류" in text and "judge" in text
+    assert "claude CLI를 찾지 못함" not in text
+    assert not marker.exists() and "Traceback" not in _runlog(tmp_path)
+
+def test_stub_receives_isolation_flags(tmp_path):
+    rec = tmp_path / "stub-argv.txt"
+    body = f"printf '%s\\n' \"$@\" > {rec}; {OK_STUB}"
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    argv = rec.read_text(encoding="utf-8").split("\n")
+    assert argv[0] == "-p" and "--restricted" in argv and "--strict-mcp-config" in argv
+    assert argv[argv.index("--tools") + 1] == ""
+    assert argv[argv.index("--mcp-config") + 1] == '{"mcpServers":{}}'
+    assert argv[argv.index("--output-format") + 1] == "json"
