@@ -240,10 +240,12 @@ def test_recommend_only_forms_have_no_path(form):
 import hashlib, os
 from hc import candidates as _cm
 
-def _fp(form, path, sids, title="t", action="create", summary="s", effect="e"):
-    """r6 F1 판정 공식: 근거(evidence)를 뺀 제안 내용의 정규 JSON sha1 앞 8자. 기본값은 cand()와 같다."""
-    canon = {"form": form, "title": title, "signal_ids": sorted(sids),
-             "proposed_change": {"action": action, "path": path, "summary": summary}, "expected_effect": effect}
+def _fp(form, path, sids, title="t", action="create", summary="s", effect="e", global_rule=False, paths=None):
+    """r6 F1 판정 공식: 근거(evidence)를 뺀 제안 내용의 정규 JSON sha1 앞 8자. 기본값은 cand()와 같다.
+    Task 10 fix: 상시 로드 여부(global_rule)와 로드 조건(proposed_change.paths)도 지문에 넣는다."""
+    canon = {"form": form, "title": title, "signal_ids": sorted(sids), "global_rule": global_rule,
+             "proposed_change": {"action": action, "path": path, "summary": summary, "paths": paths},
+             "expected_effect": effect}
     return hashlib.sha1(json.dumps(canon, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()[:8]
 
 def _write_cands(cache, day, items):
@@ -578,3 +580,14 @@ def test_decisions_ledger_at_data_dir_root(cache):
     _write_cands(cache, "2026-10-09", [cand(id=CID)])
     decide(CID, "reject", "r")
     assert (cache / "decisions.jsonl").is_file() and not (cache / "reports" / "decisions.jsonl").exists()
+
+def test_fingerprint_includes_global_rule_and_paths():
+    base = cand()
+    assert _cm.fingerprint(cand(global_rule=True)) != _cm.fingerprint(base)
+    assert _cm.fingerprint(cand(global_rule=True)) == _fp("hook", "hooks/harness-creator/hc-2026-10-09-01.sh",
+                                                          ["failure_loop:a"], global_rule=True)
+    pc = dict(base["proposed_change"], paths=["src/**"])
+    assert _cm.fingerprint(cand(proposed_change=pc)) == _fp("hook", "hooks/harness-creator/hc-2026-10-09-01.sh",
+                                                            ["failure_loop:a"], paths=["src/**"])
+    pc2 = dict(base["proposed_change"], paths=["src/**", "lib/**"])
+    assert _cm.fingerprint(cand(proposed_change=pc2)) != _cm.fingerprint(cand(proposed_change=pc))

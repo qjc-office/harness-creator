@@ -327,8 +327,114 @@ def test_cli_apply_roundtrip(cache, home, tmp_path):
     assert r.returncode == 0, r.stderr
     assert "+# X" in json.loads(r.stdout)["diff"] and not (home / "rules" / "x.md").exists()
     r = subprocess.run([sys.executable, cli, "apply-write", CID], capture_output=True, text=True, env=env)
-    assert r.returncode == 0, r.stderr and (home / "rules" / "x.md").exists()
+    assert r.returncode == 0, r.stderr
+    assert (home / "rules" / "x.md").exists()
     r = subprocess.run([sys.executable, cli, "undo", CID], capture_output=True, text=True, env=env)
     assert r.returncode == 0 and not (home / "rules" / "x.md").exists()
     r = subprocess.run([sys.executable, cli, "undo", CID], capture_output=True, text=True, env=env)
     assert r.returncode == 7 and "적용 오류" in r.stderr
+
+# ---- fix round 1 ----
+
+def _rewrite_cands(cache, c):
+    (cache / "reports" / "2026-10-09.candidates.json").write_text(json.dumps({"candidates": [c]}))
+
+@pytest.mark.parametrize("change", ["global_rule", "paths"])
+def test_approval_not_carried_when_scope_changes(cache, home, change):
+    c = _cand()
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    c2 = json.loads(json.dumps(c))
+    if change == "global_rule":
+        c2["global_rule"] = True
+    else:
+        c2["proposed_change"]["paths"] = ["**"]
+    _rewrite_cands(cache, c2)
+    with pytest.raises(A.ApplyError):
+        A.write(CID)
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    assert not (home / "rules" / "x.md").exists()
+
+def _tamper_applied(cache, fn):
+    p = cache / "applied.jsonl"
+    lines = [json.loads(l) for l in p.read_text().splitlines()]
+    fn(lines[-1])
+    p.write_text("".join(json.dumps(l) + "\n" for l in lines))
+
+def test_tampered_ledger_cannot_delete_human_file(cache, home):
+    human = home / "rules" / "human.md"
+    human.write_text("---\nname: h\n---\n사람이 쓴 규칙\n")
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    A.write(CID)
+    def drop_sha(e):
+        e["files"][0].update(rel="rules/human.md", real=str(human.resolve())); e["files"][0].pop("sha_after", None)
+    _tamper_applied(cache, drop_sha)
+    with pytest.raises(A.ApplyError):
+        A.undo(CID)
+    with pytest.raises(A.ApplyError):
+        A.undo(CID, force=True)
+    assert human.read_text().endswith("사람이 쓴 규칙\n")
+
+def test_tampered_ledger_force_still_needs_marker(cache, home):
+    human = home / "rules" / "human.md"
+    human.write_text("---\nname: h\n---\n사람이 쓴 규칙\n")
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    A.write(CID)
+    _tamper_applied(cache, lambda e: e["files"][0].update(rel="rules/human.md", real=str(human.resolve())))
+    with pytest.raises(A.ApplyError):
+        A.undo(CID, force=True)
+    assert human.exists()
+
+def test_tampered_created_dirs_outside_claude_home_kept(cache, home, tmp_path):
+    empty = tmp_path / "keep-me"; empty.mkdir()
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    A.write(CID)
+    _tamper_applied(cache, lambda e: e["files"][0].update(created_dirs=[str(empty), str(home / "rules")],
+                                                          mode_before=0o4777))
+    A.undo(CID)
+    assert empty.is_dir() and (home / "rules").is_dir()
+
+def test_tampered_mode_before_masked(cache, home):
+    (home / "rules" / "x.md").write_text("---\nname: x\npaths: a\ngenerated_by: harness-creator\n---\n옛\n")
+    os.chmod(home / "rules" / "x.md", 0o644)
+    c = _cand(); c["proposed_change"]["action"] = "modify"
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    A.write(CID)
+    _tamper_applied(cache, lambda e: e["files"][0].update(mode_before=0o6755))
+    A.undo(CID)
+    assert stat.S_IMODE((home / "rules" / "x.md").stat().st_mode) == 0o755
+
+def test_rollback_failure_does_not_hide_original(cache, home, monkeypatch):
+    (home / "settings.json").write_text("{}")
+    _approve(cache, _hook_cand())
+    A.plan(_hook_draft(HOOK.replace("exit 0", "exit 1")))
+    def boom(*a, **k):
+        raise OSError("복원 실패 흉내")
+    monkeypatch.setattr(A, "_restore", boom)
+    with pytest.raises(A.ApplyError) as ei:
+        A.write(CID)
+    assert "종료 코드 1" in str(ei.value) and "복원 실패 흉내" in str(ei.value)
+    assert not (home / "hooks" / "harness-creator" / f"{CID}.sh").exists()
+
+def test_hook_runs_before_settings_entry(cache, home):
+    sp = home / "settings.json"; sp.write_text("{}")
+    _approve(cache, _hook_cand())
+    script = HOOK.replace("exit 0", f"if grep -q harness-creator/ '{sp}'; then exit 1; fi\nexit 0")
+    A.plan(_hook_draft(script))
+    A.write(CID)
+    assert "PreToolUse" in json.loads(sp.read_text())["hooks"]
+
+def test_create_action_refuses_existing_file(cache, home):
+    (home / "rules" / "x.md").write_text("---\nname: x\npaths: a\ngenerated_by: harness-creator\n---\n옛\n")
+    _approve(cache, _cand())
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+
+def test_static_check_dev_tcp():
+    assert "network" in A.static_check(HOOK + "exec 3<>/dev/tcp/example.com/80\n")
+    assert "network" in A.static_check(HOOK + "echo x > /dev/udp/1.2.3.4/53\n")
