@@ -509,3 +509,26 @@ def test_redaction_window_is_bounded(cache, src, tmp_path):
     collect(7, include_codex=True, sources=src, redactor=Rec())
     assert max(seen) <= 500 + C.REDACT_MARGIN and C.REDACT_MARGIN >= 8192
     assert _events(cache)[0]["text"] == "z" * 500
+
+def test_long_redaction_does_not_pull_cut_value_forward(cache, src, tmp_path):
+    # 앞의 긴 토큰이 가림으로 짧아져도, 경계 근처(약 text_max_chars + 8KB)에 걸친 값의 앞부분이 남지 않는다.
+    # 일부만 잘라 가리면 잘린 조각은 패턴에 안 걸린 채 앞으로 끌려와 text_max_chars 안에 들어온다.
+    from hc.redact import Redactor
+    edge = 500 + 8192
+    big = "sk-" + "A" * 8600
+    cases = [("alice.secret" + "@example.com", "alice.secr"),
+             ("sk-" + "ABCDEFGHIJKLMNOP", "sk-ABCDEFGH"),
+             ("900101" + "-" + "1234567", "900101-1234"),
+             ("4111 1111" + " 1111 1111", "4111 1111 1")]
+    for i, (val, prefix) in enumerate(cases):
+        head = big + " "
+        text = head + "y" * (edge - len(head) - len(prefix) - 1) + " " + val + " tail"
+        assert text[:edge].endswith(prefix)
+        _cc(tmp_path / "cc", f"n{i}.jsonl", [_u(text, sid=f"n{i}")])
+    collect(7, include_codex=True, sources=src, redactor=Redactor())
+    ev = _events(cache)
+    assert len(ev) == len(cases)
+    for e in ev:
+        assert len(e["text"]) <= 500
+        for _, prefix in cases:
+            assert prefix not in e["text"]
