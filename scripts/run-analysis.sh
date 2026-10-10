@@ -174,6 +174,14 @@ try:
     env = json.loads(text)
 except ValueError:
     env = None
+# CLI 전역 설정 verbose=true 면 json 출력이 메시지 배열이 된다(--restricted 로도 안 꺼짐). 마지막 result 원소만 쓴다
+if isinstance(env, list):
+    res = [m for m in env if isinstance(m, dict) and m.get("type") == "result"]
+    if not res:
+        _write(text)
+        print("판정 응답 배열에 result 없음", file=sys.stderr)
+        sys.exit(1)
+    env = res[-1]
 if isinstance(env, dict) and env.get("type") == "result":
     if env.get("is_error"):
         _write(text)

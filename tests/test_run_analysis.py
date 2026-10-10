@@ -513,6 +513,33 @@ def test_envelope_is_error_fails(tmp_path):
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 2 and "실패" in _first_line(report)
 
+def _array_stub(tmp_path, items):
+    """CLI 전역 설정 verbose=true 면 --output-format json 이 메시지 배열을 낸다(2.1.296 실측). 그 형태를 흉내 낸다."""
+    out = tmp_path / "answer.json"
+    out.write_text(json.dumps(items), encoding="utf-8")
+    return f"cat > /dev/null; cat '{out}'"
+
+def test_verbose_array_envelope_is_unwrapped(tmp_path):
+    body = _array_stub(tmp_path, [
+        {"type": "system", "subtype": "init", "tools": []},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "{\"candidates\": [1]}"}]}},
+        {"type": "result", "subtype": "success", "is_error": False, "result": "{\"candidates\": []}"}])
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    assert "후보 없음" in _first_line(report)
+
+def test_verbose_array_envelope_is_error_fails(tmp_path):
+    body = _array_stub(tmp_path, [{"type": "system", "subtype": "init"},
+                                  {"type": "result", "is_error": True, "result": "boom"}])
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2 and "실패" in _first_line(report)
+
+def test_verbose_array_without_result_fails(tmp_path):
+    body = _array_stub(tmp_path, [{"type": "system", "subtype": "init"},
+                                  {"type": "assistant", "message": {"content": [{"type": "text", "text": "{\"candidates\": []}"}]}}])
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2 and "실패" in _first_line(report)
+
 def test_no_consent_fails_rc5(tmp_path):
     def pre(cache):
         (cache / "config.json").write_text('{"lang": "ko"}')
