@@ -9,7 +9,7 @@
     /plugin marketplace add qjc-office/harness-creator
     /plugin install harness-creator@harness-creator
 
-설치 후 `/harness-creator`를 실행합니다. Python 3.9 이상, `claude --help`에 `--restricted`와 `--safe-mode`가 있는 Claude Code가 필요합니다. 둘 중 하나라도 없으면 판정을 아예 하지 않고 리포트 첫 줄에 CLI 업그레이드가 필요하다고 적습니다. 이 플래그를 빼고 판정하는 대체 경로는 없습니다.
+설치 후 `/harness-creator`를 실행합니다. Python 3.9 이상, `claude --help`에 `--restricted`와 `--safe-mode`가 있는 Claude Code가 필요합니다. 둘 중 하나라도 없으면 판정을 아예 하지 않고 리포트 첫 줄에 CLI 업그레이드가 필요하다고 적습니다. 이 플래그를 빼고 판정하는 대체 경로는 없습니다. macOS와 Linux를 지원하며 Windows는 지원하지 않습니다.
 
 ## 하는 일
 
@@ -27,9 +27,11 @@
 
 glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `name`이 폴더 이름과 다른 스킬은 승인 전에 잘 살펴보세요. 스킬이 두 경우 모두 따로 짚어서 묻습니다.
 
+훅은 `apply-plan`이 네트워크 호출, `eval`, 디코드 후 실행, 홈 폴더 밖 쓰기, 시크릿 읽기를 경고합니다. 이 경고는 스크립트를 실행해 본 결과가 아니라 글자 패턴으로 보는 휴리스틱입니다. 경고가 없다고 안전이 보장되지 않으니 스크립트를 직접 읽어 보세요.
+
 ## 데이터
 
-플러그인 데이터 폴더(없으면 `~/.claude/harness-creator/`)에 폴더 0700, 파일 0600으로 둡니다. 이벤트는 30일 뒤 지웁니다. 통계 수집은 없고, 네트워크는 내 `claude` CLI 호출뿐입니다. 폴더 위치는 `/harness-creator where`로 확인합니다.
+플러그인 데이터 폴더(없으면 `~/.claude/harness-creator/`)에 폴더 0700, 파일 0600으로 둡니다. 이벤트·신호·판정 입력 파일은 30일 뒤 지웁니다. 폴백 폴더에는 `*` 한 줄짜리 `.gitignore`를 만들어 `~/.claude`를 git으로 관리해도 수집 데이터가 섞이지 않게 합니다. 통계 수집은 없고, 네트워크는 내 `claude` CLI 호출뿐입니다. 폴더 위치는 `/harness-creator where`로 확인합니다.
 
 `/harness-creator forget`은 수집한 것을 지웁니다. 대상은 `cursor.json`(수집 커서), `collect-stats.json`, `events/`, `signals/`, `reports/`, `logs/`, 그리고 적용 계획과 초안을 담는 `plans/`, `drafts/`입니다. `config.json`(동의와 설정), `decisions.jsonl`(기각한 신호는 발생 횟수가 두 배가 될 때까지 다시 제안하지 않기 위한 기록), `applied.jsonl`과 `backups/`(`undo`에 필요), 직접 만든 `disabled` 킬스위치 파일은 남깁니다.
 
@@ -49,7 +51,7 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 | `judge.timeout_s` | 판정 시간 제한(초, 기본 1800). 양의 정수여야 합니다. `null`, `0`, 문자열, 소수는 설정 오류로 멈춥니다 |
 | `sources.codex` | Codex 세션 포함 여부(동의에서 정함) |
 | `lang` | 리포트 언어 `ko`, `zh`, `en`(기본: 내 메시지의 다수 언어) |
-| `include` | 이 파일보다 먼저 합칠 다른 설정 파일 |
+| `include` | 이 파일보다 먼저 합칠 다른 설정 파일. 절대 경로를 쓰세요. 상대 경로는 명령을 실행한 폴더 기준으로 풀립니다 |
 
 지정한 파일을 읽지 못하면 가리지 않은 채 진행하지 않고 수집을 멈춥니다.
 
@@ -69,6 +71,7 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 - `-`로 시작하는 플래그 값(`--password -abc...`)
 - XML 요소(`<password>...</password>`)
 - `Authorization: Basic` 헤더
+- 같은 종류의 따옴표를 이스케이프하지 않은 따옴표로 감싼 값(`password="ab"cdefgh"`): 안쪽 따옴표에서 가림이 멈추고 나머지 값은 그대로 보입니다
 - 단어 목록에 없는 고유명사(고객·프로젝트·사람 이름)
 
 `redact.lexicon_files`로 단어 목록을, `redact.pattern_files`로 정규식을 직접 보강할 수 있습니다. 둘 다 지정한 파일을 읽지 못하면 수집을 멈춥니다.

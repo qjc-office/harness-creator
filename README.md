@@ -9,7 +9,7 @@ A Claude Code plugin that reads your own recent Claude Code (and, if you agree, 
     /plugin marketplace add qjc-office/harness-creator
     /plugin install harness-creator@harness-creator
 
-Then run `/harness-creator`. Requires Python 3.9+ and a Claude Code version whose `claude --help` lists `--restricted` and `--safe-mode`. Without them the plugin does not judge at all: the report's first line says a CLI upgrade is needed. There is no fallback that runs the judge without them.
+Then run `/harness-creator`. Requires Python 3.9+ and a Claude Code version whose `claude --help` lists `--restricted` and `--safe-mode`. Without them the plugin does not judge at all: the report's first line says a CLI upgrade is needed. There is no fallback that runs the judge without them. Supported on macOS and Linux; Windows is not supported.
 
 ## What it does
 
@@ -27,9 +27,11 @@ The frontmatter of a rule or skill is generated from a fixed set of keys: `name`
 
 Look closely before approving a rule whose globs match almost everything (for example `**/*.*` or `@(**)`), or a skill whose `name` differs from its folder name; the skill asks you about both.
 
+For hooks, `apply-plan` warns about network calls, `eval`, decode-and-run, writes outside your home folder and secret reads. These warnings come from a heuristic pattern check of the script text, not from running it: a clean result does not prove the hook is safe, so read the script yourself.
+
 ## Data
 
-Stored in the plugin data folder (or `~/.claude/harness-creator/`), folder 0700 and files 0600. Events are deleted after 30 days. No telemetry; the only network call is your `claude` CLI. `/harness-creator where` prints the folder.
+Stored in the plugin data folder (or `~/.claude/harness-creator/`), folder 0700 and files 0600. Events, signals and judge input files are deleted after 30 days. The fallback folder gets a `.gitignore` containing `*`, so a `~/.claude` kept in git does not pick up collected data. No telemetry; the only network call is your `claude` CLI. `/harness-creator where` prints the folder.
 
 `/harness-creator forget` deletes what was collected: `cursor.json` (the collection cursor), `collect-stats.json`, `events/`, `signals/`, `reports/`, `logs/`, and the apply plans and drafts in `plans/` and `drafts/`. It keeps `config.json` (your consent and settings), `decisions.jsonl` (a rejected signal stays quiet until it happens twice as often), `applied.jsonl` and `backups/` (so `undo` still works), and the `disabled` kill switch file if you created one.
 
@@ -49,7 +51,7 @@ To stop the plugin from running analysis, create an empty file named `disabled` 
 | `judge.timeout_s` | judging time limit in seconds (default 1800). Must be a positive integer; `null`, `0`, strings and decimals are rejected as a config error |
 | `sources.codex` | include Codex sessions (set by consent) |
 | `lang` | report language `ko`, `zh` or `en` (default: majority of your messages) |
-| `include` | other config files merged before this one |
+| `include` | other config files merged before this one. Use absolute paths; a relative path is resolved against whatever folder the command runs from |
 
 If a configured file cannot be read, collection stops instead of continuing unmasked.
 
@@ -69,6 +71,7 @@ Masking is a set of regular expressions plus your own word lists. It does not ca
 - flag values that start with `-` (`--password -abc...`)
 - XML elements (`<password>...</password>`)
 - `Authorization: Basic` headers
+- a quoted value that contains an unescaped quote of the same kind (`password="ab"cdefgh"`): masking stops at that inner quote and the rest of the value stays visible
 - proper nouns (customer, project or person names) that are not in a word list
 
 Add your own word lists with `redact.lexicon_files` and your own regexes with `redact.pattern_files`. Both are fail-closed: a listed file that cannot be read stops collection.

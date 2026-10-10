@@ -9,7 +9,7 @@
     /plugin marketplace add qjc-office/harness-creator
     /plugin install harness-creator@harness-creator
 
-然后运行 `/harness-creator`。需要 Python 3.9+, 以及 `claude --help` 中包含 `--restricted` 和 `--safe-mode` 的 Claude Code 版本。缺少其中任何一个时插件完全不做判定, 报告第一行会提示需要升级 CLI。不存在去掉该参数运行判定的替代路径。
+然后运行 `/harness-creator`。需要 Python 3.9+, 以及 `claude --help` 中包含 `--restricted` 和 `--safe-mode` 的 Claude Code 版本。缺少其中任何一个时插件完全不做判定, 报告第一行会提示需要升级 CLI。不存在去掉该参数运行判定的替代路径。支持 macOS 和 Linux, 不支持 Windows。
 
 ## 功能
 
@@ -27,9 +27,11 @@
 
 对 glob 几乎匹配所有文件的规则 (如 `**/*.*`、`@(**)`) 或 `name` 与文件夹名不同的技能, 批准前请仔细查看; 技能会在提问时特别指出这两种情况。
 
+对于钩子, `apply-plan` 会警告网络调用、`eval`、解码后执行、写入主目录之外以及读取机密。这些警告是对脚本文本的启发式模式检查, 不是实际运行的结果。没有警告并不代表安全, 请自己阅读脚本。
+
 ## 数据
 
-保存在插件数据目录 (或 `~/.claude/harness-creator/`), 目录 0700, 文件 0600, 事件 30 天后删除。没有遥测, 唯一的网络调用是你的 `claude` CLI。用 `/harness-creator where` 查看目录位置。
+保存在插件数据目录 (或 `~/.claude/harness-creator/`), 目录 0700, 文件 0600, 事件、信号和判定输入文件 30 天后删除。备用目录中会创建内容为 `*` 的 `.gitignore`, 用 git 管理 `~/.claude` 时不会混入收集的数据。没有遥测, 唯一的网络调用是你的 `claude` CLI。用 `/harness-creator where` 查看目录位置。
 
 `/harness-creator forget` 删除已收集的数据: `cursor.json` (收集游标)、`collect-stats.json`、`events/`、`signals/`、`reports/`、`logs/`, 以及存放应用计划和草稿的 `plans/`、`drafts/`。保留 `config.json` (你的同意和设置)、`decisions.jsonl` (被拒绝的信号在出现次数翻倍之前不会再次提出)、`applied.jsonl` 和 `backups/` (`undo` 需要), 以及你创建的 `disabled` 停用开关文件。
 
@@ -49,7 +51,7 @@
 | `judge.timeout_s` | 判定时间上限 (秒, 默认 1800)。必须是正整数; `null`、`0`、字符串和小数都会作为配置错误停止 |
 | `sources.codex` | 是否包含 Codex 会话 (由同意步骤设置) |
 | `lang` | 报告语言 `ko`、`zh` 或 `en` (默认: 你消息中的多数语言) |
-| `include` | 在本文件之前合并的其他配置文件 |
+| `include` | 在本文件之前合并的其他配置文件。请使用绝对路径; 相对路径会按执行命令时所在的目录解析 |
 
 指定的文件无法读取时会停止收集, 不会在未遮盖的情况下继续。
 
@@ -69,6 +71,7 @@
 - 以 `-` 开头的参数值 (`--password -abc...`)
 - XML 元素 (`<password>...</password>`)
 - `Authorization: Basic` 请求头
+- 值中含有未转义的引号且与外层引号同类 (`password="ab"cdefgh"`): 遮盖在内层引号处停止, 值的其余部分仍然可见
 - 不在词表中的专有名词 (客户、项目或人名)
 
 可以用 `redact.lexicon_files` 补充词表, 用 `redact.pattern_files` 补充正则。两者都会在指定文件无法读取时停止收集。

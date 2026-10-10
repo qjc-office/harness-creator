@@ -180,3 +180,14 @@ def test_user_facing_messages_are_english():
             if msg.search(code) and hangul.search(code):
                 bad.append(f"{p.name}:{n}")
     assert not bad, bad
+
+def test_readmes_state_os_heuristics_include_and_quote_limit():
+    must = {
+        "README.md": ("Windows", "heuristic", "absolute path", "unescaped quote", ".gitignore"),
+        "README.ko.md": ("Windows", "휴리스틱", "절대 경로", "이스케이프하지 않은 따옴표", ".gitignore"),
+        "README.zh.md": ("Windows", "启发式", "绝对路径", "未转义的引号", ".gitignore"),
+    }
+    for n, words in must.items():
+        t = (ROOT / n).read_text(encoding="utf-8")
+        for w in words:
+            assert w in t, (n, w)
