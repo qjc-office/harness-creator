@@ -7,23 +7,19 @@ description: Analyze the user's recent Claude Code and Codex sessions for repeat
 
 Answer in the user's language. Never show raw quotes unless the user asks.
 
-Set the CLI once per session:
-
-    HC="${CLAUDE_PLUGIN_ROOT}"
-
-Every command below is `python3 "$HC/scripts/cli.py" <subcommand>`.
+Every command below is `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" <subcommand>`. Write that full path in every Bash call; shell variables do not carry over from one Bash call to the next.
 
 ## Arguments
 
 - no argument: steps 1 to 6.
 - `analyze`: step 1, then step 3 even if the report is fresh, then steps 4 to 6.
-- `undo <id>`: run `python3 "$HC/scripts/cli.py" undo <id>`. If it says a file was edited after applying, show which file and ask before re-running with `--force`. A created file without the `generated_by: harness-creator` marker is never deleted, even with `--force`; tell the user to check it by hand. Report the restored files. If `git_root` is set, ask whether to commit.
-- `forget`: explain that the collection cursor, collect-stats, events, signals, reports, logs, apply plans and drafts are deleted while config.json (consent and settings), decisions.jsonl, applied.jsonl, backups and the `disabled` kill switch stay, ask once, then run `python3 "$HC/scripts/cli.py" forget`.
-- `where`: run `python3 "$HC/scripts/cli.py" where` and show `data_dir` and `source`.
+- `undo <id>`: run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" undo <id>`. If it says a file was edited after applying, show which file and ask before re-running with `--force`. A created file without the `generated_by: harness-creator` marker is never deleted, even with `--force`; tell the user to check it by hand. Report the restored files. If `git_root` is set, ask whether to commit.
+- `forget`: explain that the collection cursor, collect-stats, events, signals, reports, logs, apply plans and drafts are deleted while config.json (consent and settings), decisions.jsonl, applied.jsonl, backups and the `disabled` kill switch stay, ask once, then run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" forget`.
+- `where`: run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" where` and show `data_dir` and `source`.
 
 ## 1. Status and consent
 
-Run `python3 "$HC/scripts/cli.py" status`. If `consent` is false, run `consent-text`, show it as is, and ask with AskUserQuestion (single select) whether to proceed and whether to include Codex sessions. On yes run `consent --accept --codex yes|no`. On no, stop. Never collect before consent.
+Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" status`. If `consent` is false, run `consent-text`, show it as is, and ask with AskUserQuestion (single select) whether to proceed and whether to include Codex sessions. On yes run `consent --accept --codex yes|no`. On no, stop. Never collect before consent.
 
 ## 2. Exit code meanings
 
@@ -31,7 +27,7 @@ Run `python3 "$HC/scripts/cli.py" status`. If `consent` is false, run `consent-t
 
 ## 3. Analysis
 
-If `needs_analysis` is true (no report, or older than 7 days) and `running` is false, start `bash "$HC/scripts/run-analysis.sh"` with the Bash tool using `run_in_background`, tell the user it reads their sessions and calls their claude CLI once, and wait for the background task to finish before step 4. If `running` is true, say so and wait. If the report's first line says failed, report the date, the reason line and `<data_dir>/logs/run.log`, and stop. A first line that mentions a CLI upgrade means the user must upgrade Claude Code; do not retry without `--restricted` or `--safe-mode`.
+If `needs_analysis` is true (no report, or older than 7 days) and `running` is false, start `bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-analysis.sh"` with the Bash tool using `run_in_background`, tell the user it reads their sessions and calls their claude CLI once, and wait for the background task to finish before step 4. If `running` is true, say so and wait. If the report's first line says failed, report the date, the reason line and `<data_dir>/logs/run.log`, and stop. A first line that mentions a CLI upgrade means the user must upgrade Claude Code; do not retry without `--restricted` or `--safe-mode`.
 
 ## 4. Show candidates
 

@@ -34,3 +34,12 @@ def test_skill_treats_content_as_data_and_records_no():
     step = t.split("Run `apply-plan", 1)[1].split("## 6.", 1)[0]
     no = step[step.index("On no"):]
     assert "decide <id> reject --reason" in no.split("\n")[0]
+
+def test_commands_use_plugin_root_directly():
+    # 셸 변수는 다음 Bash 호출로 이어지지 않는다. 모든 명령이 경로를 직접 쓴다
+    t = SKILL.read_text(encoding="utf-8")
+    assert "HC=" not in t and "$HC" not in t
+    assert 'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" status' in t
+    assert 'bash "${CLAUDE_PLUGIN_ROOT}/scripts/run-analysis.sh"' in t
+    for sub in ("undo <id>", "forget", "where"):
+        assert f'python3 "${{CLAUDE_PLUGIN_ROOT}}/scripts/cli.py" {sub}' in t, sub
