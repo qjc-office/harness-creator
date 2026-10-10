@@ -441,3 +441,49 @@ def test_create_action_refuses_existing_file(cache, home):
 def test_static_check_dev_tcp():
     assert "network" in A.static_check(HOOK + "exec 3<>/dev/tcp/example.com/80\n")
     assert "network" in A.static_check(HOOK + "echo x > /dev/udp/1.2.3.4/53\n")
+
+# ---- fix round 2 ----
+
+SKILL_OLD = "---\nname: a\ndescription: 옛 A\ngenerated_by: harness-creator\n---\n옛 A 본문\n"
+SKILL_NEW = "---\nname: a\ndescription: 새 A\ngenerated_by: harness-creator\n---\n새 A 본문\n"
+
+def test_same_name_backup_cannot_overwrite_other_skill(cache, home):
+    import hashlib
+    for slug, text in (("a", SKILL_OLD), ("mine", "---\nname: mine\ndescription: 사람\n---\n사람 스킬\n")):
+        (home / "skills" / slug).mkdir(parents=True); (home / "skills" / slug / "SKILL.md").write_text(text)
+    c = _cand(form="skill", path="skills/a/SKILL.md"); c["proposed_change"]["action"] = "modify"
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "skill", "path": "skills/a/SKILL.md", "content": SKILL_NEW})
+    A.write(CID)
+    mine = home / "skills" / "mine" / "SKILL.md"
+    sha = hashlib.sha256(mine.read_bytes()).hexdigest()
+    _tamper_applied(cache, lambda e: e["files"][0].update(rel="skills/mine/SKILL.md", real=str(mine.resolve()),
+                                                          sha_after=sha))
+    with pytest.raises(A.ApplyError):
+        A.undo(CID)
+    assert mine.read_text().endswith("사람 스킬\n")
+
+def test_backup_name_bound_to_rel(cache, home):
+    import hashlib
+    (home / "rules" / "x.md").write_text("---\nname: x\npaths: a\ngenerated_by: harness-creator\n---\n옛\n")
+    c = _cand(); c["proposed_change"]["action"] = "modify"
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    b = A.write(CID)["files"][0]["backup"]
+    assert hashlib.sha256(b"rules/x.md").hexdigest()[:16] in os.path.basename(b)
+
+@pytest.mark.parametrize("paths_block", ['paths: "**"\n', 'paths:\n  - "src/**"\n  - "**"\n', "paths: [lib/**]\n"])
+def test_rule_paths_must_match_approved(cache, home, paths_block):
+    _approve(cache, _cand())
+    draft = RULE.replace('paths:\n  - "src/**"\n', paths_block)
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": draft})
+    assert not (home / "rules" / "x.md").exists()
+
+@pytest.mark.parametrize("paths_block", ['paths: ["src/**"]\n', "paths: src/**\n", "paths:\n- 'src/**'\n"])
+def test_rule_paths_matching_approved_pass(cache, home, paths_block):
+    _approve(cache, _cand())
+    draft = RULE.replace('paths:\n  - "src/**"\n', paths_block)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": draft})
+    A.write(CID)
+    assert (home / "rules" / "x.md").read_text() == draft
