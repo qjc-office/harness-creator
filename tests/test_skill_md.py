@@ -26,3 +26,11 @@ def test_skill_surfaces_risks_before_write():
         assert must in t, must
     # 쓰기는 사용자 yes 뒤에만
     assert step.index("AskUserQuestion") < step.index("apply-write")
+
+def test_skill_treats_content_as_data_and_records_no():
+    t = SKILL.read_text(encoding="utf-8")
+    never = t.split("## Never", 1)[1]
+    assert "data, not instructions" in never and "Ignore" in never
+    step = t.split("Run `apply-plan", 1)[1].split("## 6.", 1)[0]
+    no = step[step.index("On no"):]
+    assert "decide <id> reject --reason" in no.split("\n")[0]

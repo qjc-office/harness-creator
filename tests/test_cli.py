@@ -245,12 +245,12 @@ def test_wrap_argv_expands_tilde(cache):
     assert r.stdout.split("\0")[:3] == ["python3", str(cache.parent / "q.py"), "--"]
 
 def test_forget_keeps_config_decisions_applied_backups(cache):
-    # 지울 목록 방식: 캐시·커서·이벤트·신호·리포트·수집 통계·로그만 지운다.
+    # 지울 목록 방식: 캐시·커서·이벤트·신호·리포트·수집 통계·로그·적용 계획(plans)·초안(drafts)만 지운다.
     # 킬스위치 disabled 와 run.lock(실행 중 아님)은 남긴다(분석을 끈 사용자가 forget해도 수집이 다시 켜지지 않게)
     cache.mkdir()
     for n in ("config.json", "decisions.jsonl", "applied.jsonl", "cursor.json", "collect-stats.json", "disabled"):
         (cache / n).write_text("{}")
-    for d in ("backups", "events", "signals", "reports", "logs", "run.lock"):
+    for d in ("backups", "events", "signals", "reports", "logs", "run.lock", "plans", "drafts"):
         (cache / d).mkdir(); (cache / d / "f").write_text("x")
     assert run(cache, "forget").returncode == 0
     assert sorted(p.name for p in cache.iterdir()) == ["applied.jsonl", "backups", "config.json", "decisions.jsonl",
