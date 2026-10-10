@@ -52,6 +52,7 @@
     "err_gate": "candidate filtering failed {detail}",
     "err_timeout_runner": "no timeout runner (timeout, gtimeout, python3) {detail}",
     "err_missing": "no candidate file",
+    "err_config": "configuration error {detail}",
     "err_other": "{detail}"
   },
   "consent": {

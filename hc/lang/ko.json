@@ -54,6 +54,7 @@
     "err_gate": "후보 거르기 실패 {detail}",
     "err_timeout_runner": "시간 제한 실행기 없음(timeout·gtimeout·python3) {detail}",
     "err_missing": "후보 파일 없음",
+    "err_config": "설정 오류 {detail}",
     "err_other": "{detail}"
   },
   "consent": {

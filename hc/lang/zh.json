@@ -51,6 +51,7 @@
     "err_gate": "候选过滤失败 {detail}",
     "err_timeout_runner": "没有超时执行器 (timeout、gtimeout、python3) {detail}",
     "err_missing": "没有候选文件",
+    "err_config": "配置错误 {detail}",
     "err_other": "{detail}"
   },
   "consent": {

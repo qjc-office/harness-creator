@@ -65,8 +65,32 @@ def _consent_text(cfg: dict) -> str:
              K["store"].format(data_dir=data_dir()), "", K["codex_q"]]
     return "\n".join(lines)
 
-# forget이 남기는 것: 설정·동의, 기각 억제 근거, 적용 원장, 되돌리기 백업(사용자 데이터가 아님, 되돌리기에 필요)
-_FORGET_KEEP = {"config.json", "decisions.jsonl", "applied.jsonl", "backups"}
+# forget이 지우는 것(지울 목록 방식): 세션에서 나온 캐시·커서·이벤트·신호·리포트·수집 통계·로그.
+# 남는 것: 설정·동의(config.json), 기각 억제 근거(decisions.jsonl), 적용 원장(applied.jsonl), 되돌리기 백업(backups),
+# 킬스위치(disabled), 잠금(run.lock). 목록에 없는 것은 지우지 않는다.
+_FORGET_DELETE = ("cursor.json", "collect-stats.json", "events", "signals", "reports", "logs")
+
+def _wrap_argv(cfg: dict) -> list:
+    """run.wrap은 문자열 목록이고 NUL이 없어야 한다(wrap-argv가 NUL로 구분해 내보낸다). 아니면 ConfigError."""
+    run = cfg.get("run")
+    wrap = run.get("wrap") if isinstance(run, dict) else None
+    if not isinstance(wrap, list) or not all(isinstance(x, str) and x and "\0" not in x for x in wrap):
+        raise ConfigError(f"run.wrap은 문자열 목록이어야 한다(빈 문자열·NUL 금지): {wrap!r}")
+    return [str(expand(x)) if x.startswith("~") else x for x in wrap]
+
+def _judge_argv(cfg: dict) -> list:
+    """judge-argv 세 줄(claude 경로, 모델, 시간 제한 초). 줄 구분이라 값에 줄바꿈이 있으면 안 된다."""
+    j = cfg.get("judge")
+    if not isinstance(j, dict):
+        raise ConfigError(f"judge는 객체여야 한다: {j!r}")
+    binp, model, to = j.get("claude_bin") or "", j.get("model"), j.get("timeout_s")
+    if not isinstance(binp, str) or "\n" in binp or "\0" in binp:
+        raise ConfigError(f"judge.claude_bin은 한 줄 문자열이어야 한다: {binp!r}")
+    if not isinstance(model, str) or not model or "\n" in model or "\0" in model:
+        raise ConfigError(f"judge.model은 비지 않은 한 줄 문자열이어야 한다: {model!r}")
+    if not isinstance(to, int) or isinstance(to, bool) or to <= 0:
+        raise ConfigError(f"judge.timeout_s는 양의 정수여야 한다: {to!r}")
+    return [str(expand(binp)) if binp else (shutil.which("claude") or ""), model, str(to)]
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="harness-creator")
@@ -120,12 +144,10 @@ def _dispatch(a) -> int:
         inc = [x for x in load_user_config().get("include") or [] if x != a.path] + [a.path]
         save_user_config({"include": inc}); return 0
     if a.cmd == "wrap-argv":
-        sys.stdout.write("".join(str(expand(x)) + "\0" if x.startswith("~") else x + "\0" for x in cfg["run"]["wrap"]))
+        sys.stdout.write("".join(x + "\0" for x in _wrap_argv(cfg)))
         return 0
     if a.cmd == "judge-argv":
-        j = cfg["judge"]
-        binp = str(expand(j["claude_bin"])) if j.get("claude_bin") else (shutil.which("claude") or "")
-        print(binp); print(j["model"]); print(int(j.get("timeout_s") or 1800)); return 0
+        print("\n".join(_judge_argv(cfg))); return 0
     if a.cmd == "collect":
         if not cfg.get("consent"):
             print("동의 기록 없음: 수집하지 않는다", file=sys.stderr); return 5
@@ -145,7 +167,8 @@ def _dispatch(a) -> int:
             print(f"가림 실패, 신호 파일을 쓰지 않음: {e}", file=sys.stderr); return 3
         return 0
     if a.cmd == "propose-input":
-        # 신호 samples는 수집 때 이미 가렸다. 여기서 다시 가리거나 바꾸지 않는다(validate의 quotes 정확 일치가 깨진다)
+        # 신호 samples는 detect가 현재 설정의 가림기로 다시 가려 신호 파일에 쓴 값이다. 그대로 옮기고 여기서 바꾸지 않는다
+        # (validate가 같은 신호 파일 samples와 quotes를 정확 일치로 대조한다)
         from hc.inventory import build, fit_input
         from hc.redact import from_config
         signals = _signals_doc().get("signals", [])
@@ -246,12 +269,12 @@ def _dispatch(a) -> int:
     if a.cmd == "forget":
         if _lock_running():
             print("분석이 실행 중이라 지우지 않는다", file=sys.stderr); return 75
-        for p in data_dir().iterdir():
-            if p.name in _FORGET_KEEP:
-                continue
+        root = data_dir()
+        for name in _FORGET_DELETE:
+            p = root / name
             if p.is_dir() and not p.is_symlink():
                 shutil.rmtree(p)
-            else:
+            elif p.exists() or p.is_symlink():
                 p.unlink()
         return 0
     if a.cmd in ("apply-plan", "apply-write", "undo"):

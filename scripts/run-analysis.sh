@@ -2,7 +2,8 @@
 # harness-creator 분석 러너: collect → detect(G1·G2) → propose(claude -p) → validate → gate(G3·G4·G5) → render
 # 킬스위치: <데이터 폴더>/disabled 또는 HARNESS_CREATOR_DISABLED=1
 # 테스트 훅:
-#   HC_CLAUDE_STUB=<실행파일>  판정 단계에서 claude 대신 실행(stdin=프롬프트, stdout=응답). --help 사전검사 생략
+#   HC_CLAUDE_STUB=<실행파일>  테스트 전용. 판정 단계에서 claude 대신 실행(stdin=프롬프트, stdout=응답).
+#                              claude와 같은 격리 플래그 배열(ISO)을 받는다. 스텁은 claude가 아니라 --help 사전검사만 생략
 #   HC_SKIP_COLLECT=1          수집 생략(탐지는 그대로)
 #   HC_MAX_EVENTS=<N>          탐지 이벤트 상한 덮어쓰기
 #   HC_PROPOSE_TIMEOUT=<초>     판정 시간 제한(기본 config judge.timeout_s)
@@ -72,8 +73,16 @@ fi
 
 # --- 수집: run.wrap 접두로 감싼다(빈 배열은 bash 3.2 set -u 에서 ${A[@]+...} 로만 펼친다) ---
 if [ "${HC_SKIP_COLLECT:-0}" != "1" ]; then
+  # wrap-argv 결과를 파일(umask 077 → 0600, 잠금 폴더 안이라 끝나면 같이 지워짐)로 받아 rc를 본다.
+  # 프로세스 치환은 rc를 잃어 설정 오류 때 래퍼 없이 수집해 버린다.
+  WA="$LOCK/wrap-argv"; WE="$LOCK/wrap-argv.err"
+  if ! "${CLI[@]}" wrap-argv > "$WA" 2> "$WE"; then
+    cat "$WE" >> "$LOG"
+    _render_err collect "$(head -n 1 "$WE")"; _fail "wrap-argv 실패(run.wrap 설정 오류)"; exit 6
+  fi
   WRAP=()
-  while IFS= read -r -d '' a; do WRAP+=("$a"); done < <("${CLI[@]}" wrap-argv 2>> "$LOG")
+  while IFS= read -r -d '' a; do WRAP+=("$a"); done < "$WA"
+  rm -f "$WA" "$WE"
   ${WRAP[@]+"${WRAP[@]}"} python3 "$HERE/cli.py" collect >> "$LOG" 2>&1
   rc=$?
   if [ "$rc" -ne 0 ]; then
@@ -88,8 +97,15 @@ if [ ! -f "$INPUT" ]; then
   _render_err input; _fail "propose-input 실패"; exit 1
 fi
 LANG_OUT="$("${CLI[@]}" lang 2>> "$LOG")"
+JF="$LOCK/judge-argv"; JE="$LOCK/judge-argv.err"
+if ! "${CLI[@]}" judge-argv > "$JF" 2> "$JE"; then
+  cat "$JE" >> "$LOG"
+  msg="$(head -n 1 "$JE")"
+  _render_err config "${msg#설정 오류: }"; _fail "judge-argv 실패(judge 설정 오류)"; exit 6
+fi
 JA=()
-while IFS= read -r line; do JA+=("$line"); done < <("${CLI[@]}" judge-argv 2>> "$LOG")
+while IFS= read -r line; do JA+=("$line"); done < "$JF"
+rm -f "$JF" "$JE"
 CLAUDE="${JA[0]:-}"; MODEL="${JA[1]:-sonnet}"
 PROPOSE_TIMEOUT="${HC_PROPOSE_TIMEOUT:-${JA[2]:-1800}}"
 case "$PROPOSE_TIMEOUT" in ''|*[!0-9]*|0) PROPOSE_TIMEOUT=1800 ;; esac
@@ -114,9 +130,18 @@ _log "시간 제한 실행기: $(basename "${TO[0]}") ${PROPOSE_TIMEOUT}s"
 
 rm -f "${JUDGED:?}" "${RAW:?}"
 { sed -e "s#{TODAY}#$TODAY#g" -e "s#{LANG}#$LANG_OUT#g" "$HERE/propose-prompt.md"; cat "$INPUT"; } > "$PF"
+# 판정 모델에는 도구를 하나도 주지 않는다. 입력이 세션 기록이라 프롬프트 주입이 가능하므로 파일 쓰기는 셸이 한다.
+# --restricted 로 사용자 settings 를 무시하고, --tools "" 로 내장 도구를 끄고, --disallowedTools 를 2차 방어선으로 둔다.
+# 가변 인자 플래그(--tools·--disallowedTools)는 맨 뒤에 둔다. 플래그를 빼고 돌리는 대체 경로는 두지 않는다.
+ISO=(-p --output-format json --model "$MODEL" \
+  --restricted --permission-mode dontAsk \
+  --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
+  --tools "" \
+  --disallowedTools "Bash,Read,Write,Edit,MultiEdit,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Agent,Task,Skill,TodoWrite,Monitor,SendMessage,Artifact,ArtifactData,ArtifactComments,ToolSearch,EnterWorktree,ExitWorktree,CronCreate,RemoteTrigger,TaskStop,PushNotification,ScheduleWakeup")
 rc=0
 if [ -n "$STUB" ]; then
-  "${TO[@]}" "$STUB" < "$PF" > "$RAW" 2>> "$LOG"
+  # 테스트 전용 경로. 실제 claude와 같은 ISO 플래그를 넘겨 격리 인자가 빠지지 않았는지 테스트가 본다
+  "${TO[@]}" "$STUB" "${ISO[@]}" < "$PF" > "$RAW" 2>> "$LOG"
   rc=$?
 else
   if [ -z "$CLAUDE" ] || [ ! -x "$CLAUDE" ]; then
@@ -127,15 +152,7 @@ else
     *--restricted*) ;;
     *) _render_err cli_upgrade; _fail "claude --help 에 --restricted 없음"; exit 1 ;;
   esac
-  # 판정 모델에는 도구를 하나도 주지 않는다. 입력이 세션 기록이라 프롬프트 주입이 가능하므로 파일 쓰기는 셸이 한다.
-  # --restricted 로 사용자 settings 를 무시하고, --tools "" 로 내장 도구를 끄고, --disallowedTools 를 2차 방어선으로 둔다.
-  # 가변 인자 플래그(--tools·--disallowedTools)는 맨 뒤에 둔다. 플래그를 빼고 돌리는 대체 경로는 두지 않는다.
-  "${TO[@]}" "$CLAUDE" -p --output-format json --model "$MODEL" \
-    --restricted --permission-mode dontAsk \
-    --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
-    --tools "" \
-    --disallowedTools "Bash,Read,Write,Edit,MultiEdit,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Agent,Task,Skill,TodoWrite,Monitor,SendMessage,Artifact,ArtifactData,ArtifactComments,ToolSearch,EnterWorktree,ExitWorktree,CronCreate,RemoteTrigger,TaskStop,PushNotification,ScheduleWakeup" \
-    < "$PF" > "$RAW" 2>> "$LOG"
+  "${TO[@]}" "$CLAUDE" "${ISO[@]}" < "$PF" > "$RAW" 2>> "$LOG"
   rc=$?
 fi
 rm -f "${PF:?}"
