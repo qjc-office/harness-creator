@@ -72,7 +72,8 @@ def test_human_file_modify_keeps_no_marker(cache, home):
     ok = "---\nname: x\npaths:\n  - \"a/**\"\n---\n사람이 쓴 규칙\n보강 한 줄\n"
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": ok})
     A.write(CID)
-    assert (home / "rules" / "x.md").read_text() == ok
+    # 판정(fix round 3): 기존 파일 수정도 paths 는 승인 범위(src/**) 정규형으로 바뀐다
+    assert (home / "rules" / "x.md").read_text() == ok.replace('"a/**"', '"src/**"')
     A.undo(CID)
     assert (home / "rules" / "x.md").read_text().endswith("사람이 쓴 규칙\n")
 
@@ -472,18 +473,91 @@ def test_backup_name_bound_to_rel(cache, home):
     b = A.write(CID)["files"][0]["backup"]
     assert hashlib.sha256(b"rules/x.md").hexdigest()[:16] in os.path.basename(b)
 
-@pytest.mark.parametrize("paths_block", ['paths: "**"\n', 'paths:\n  - "src/**"\n  - "**"\n', "paths: [lib/**]\n"])
-def test_rule_paths_must_match_approved(cache, home, paths_block):
-    _approve(cache, _cand())
-    draft = RULE.replace('paths:\n  - "src/**"\n', paths_block)
-    with pytest.raises(A.ApplyError):
-        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": draft})
-    assert not (home / "rules" / "x.md").exists()
-
-@pytest.mark.parametrize("paths_block", ['paths: ["src/**"]\n', "paths: src/**\n", "paths:\n- 'src/**'\n"])
-def test_rule_paths_matching_approved_pass(cache, home, paths_block):
+# 판정(fix round 3): 대조가 아니라 정규형 강제. 초안 paths 가 무엇이든 최종 파일은 승인 paths 정규형이다.
+@pytest.mark.parametrize("paths_block", [
+    'paths: "**"\n', 'paths:\n  - "src/**"\n  - "**"\n', "paths: [lib/**]\n",              # 확장
+    'paths: ["src/**"]\n', "paths: src/**\n", "paths:\n- 'src/**'\n",                       # 일치 변주
+    'paths:\n  - "src/**"\n\n  - "**"\n',                                                  # P1 빈 줄 뒤 항목
+    'paths:\n  - "src/**"\n  # c\n  - "**"\n',                                              # P2 주석 뒤 항목
+    'paths:\n  - "src/**"\npaths: "**"\n',                                                  # P3 중복 키
+    'paths:\n  - "src/**"\n# top\npaths:\n  - "**"\n'])
+def test_rule_paths_forced_to_approved_canonical(cache, home, paths_block):
     _approve(cache, _cand())
     draft = RULE.replace('paths:\n  - "src/**"\n', paths_block)
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": draft})
     A.write(CID)
-    assert (home / "rules" / "x.md").read_text() == draft
+    assert (home / "rules" / "x.md").read_text() == RULE           # name·description·generated_by 보존, paths 정규형
+
+# ---- fix round 3: 정규형 강제 ----
+
+def test_p4_existing_wide_paths_replaced(cache, home):
+    (home / "rules" / "x.md").write_text('---\nname: x\npaths: "**"\n---\n사람\n')
+    c = _cand(); c["proposed_change"]["action"] = "modify"
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": '---\nname: x\npaths: "**"\n---\n사람 + 새\n'})
+    A.write(CID)
+    assert (home / "rules" / "x.md").read_text() == '---\nname: x\npaths:\n  - "src/**"\n---\n사람 + 새\n'
+
+@pytest.mark.parametrize("pc_paths", [None, [], [""], "src/**"])
+def test_p6_non_global_rule_without_approved_paths_refused(cache, home, pc_paths):
+    c = _cand()
+    if pc_paths is None:
+        del c["proposed_change"]["paths"]
+    else:
+        c["proposed_change"]["paths"] = pc_paths
+    _approve(cache, c)
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE.replace('src/**', '**')})
+    assert not (home / "rules" / "x.md").exists()
+
+def test_multiple_globs_canonical_json_escaped(cache, home):
+    c = _cand(); c["proposed_change"]["paths"] = ["src/**", 'docs/"q"/**', "src/**"]
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE.replace('src/**', '**')})
+    A.write(CID)
+    t = (home / "rules" / "x.md").read_text()
+    assert 'paths:\n  - "src/**"\n  - "docs/\\"q\\"/**"\ngenerated_by' in t and t.count("paths:") == 1
+
+def test_global_rule_paths_removed(cache, home):
+    _approve(cache, _cand(global_rule=True))
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md",
+            "content": RULE.replace('paths:\n  - "src/**"\n', 'paths: "**"\npaths:\n  - a\n')})
+    A.write(CID)
+    t = (home / "rules" / "x.md").read_text()
+    assert "paths" not in t and "name: x\ndescription: d\ngenerated_by" in t
+
+@pytest.mark.parametrize("bad", [
+    'base: &b\n  paths: "**"\n<<: *b\n',          # 병합 키·앵커
+    '"paths": "**"\n',                             # 따옴표 키
+    "? paths\n: '**'\n",                           # 명시 키
+    'name2: x\rpaths: "**"\n',                     # CR 줄바꿈
+    "\tpaths: '**'\n",                             # 탭 들여쓰기
+    'note: *alias\n',                              # 별칭
+])
+def test_non_simple_frontmatter_refused(cache, home, bad):
+    _approve(cache, _cand())
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE.replace("generated_by", bad + "generated_by")})
+
+def test_indented_frontmatter_refused(cache, home):
+    _approve(cache, _cand())
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md",
+                "content": '---\n  name: x\n  paths: "**"\n  generated_by: harness-creator\n---\n# X\n'})
+
+def test_closing_marker_must_be_exact(cache, home):
+    _approve(cache, _cand())
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md",
+                "content": RULE.replace("---\n# X", "---x\npaths: \"**\"\n---\n# X")})
+
+def test_verify_rejects_non_canonical_final_file(cache, home, monkeypatch):
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    real_write = A._write_atomic
+    def sneaky(path, text, mode):
+        real_write(path, text.replace('  - "src/**"\n', '  - "src/**"\n  - "**"\n'), mode)
+    monkeypatch.setattr(A, "_write_atomic", sneaky)
+    with pytest.raises(A.ApplyError):
+        A.write(CID)
+    assert not (home / "rules" / "x.md").exists()
