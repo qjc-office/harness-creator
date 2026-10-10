@@ -4,10 +4,11 @@ import hashlib, json, re
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 
-from .config import load_defaults
 
 KINDS = ("user_msg", "tool_call", "tool_error", "permission_denied", "hook_error")
-TEXT_MAX = load_defaults()["text_max_chars"]
+# 파서가 넘기는 원문 상한. 실제 길이 제한(config text_max_chars)은 수집기가 가린 뒤에 건다.
+# 여기서 짧게 자르면 경계에 걸친 시크릿·개인정보가 가림 패턴에 안 걸려 앞부분이 남는다.
+RAW_MAX = 65536
 
 @dataclass(frozen=True)
 class Event:
@@ -26,8 +27,8 @@ def dumps(e: Event) -> str:
 def loads(s: str) -> Event:
     return Event(**json.loads(s))
 
-def clip(text: str) -> str:
-    return (text or "")[:TEXT_MAX]
+def clip(text: str, limit: int = RAW_MAX) -> str:
+    return (text or "")[:limit]
 
 # 종료·상태 코드는 서로 다른 실패이므로 숫자를 지우지 않는다.
 # 숫자를 글자(0→A … 9→J)로 바꿔 뒤의 \d+ 치환을 피한다.

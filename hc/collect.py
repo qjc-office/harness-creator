@@ -95,6 +95,7 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
             continue
         todo.append((surface, p, st))
     limit = cfg["max_files_per_run"]
+    text_max = cfg["text_max_chars"]
     flush_every = cfg["cursor_flush_every"]
     stats = CollectStats(deferred=max(0, len(todo) - limit))
     stats.skipped_outside_source = skipped["outside"]
@@ -126,7 +127,8 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
                         sid, wd = (c.get("session_id"), c.get("cwd")) if start and c.get("session_id") else parse_codex.read_meta(p)
                         res = parse_codex.parse(p, start, sid, wd)
                     # cwd·tool 도 가린다: 프로젝트 폴더 이름과 MCP 도구 이름에 실명·토큰이 들어갈 수 있다
-                    lines = [dumps(type(e)(**{**asdict(e), "text": red.redact(e.text), "cwd": red.redact(e.cwd),
+                    # 가린 다음 자른다(순서 바꾸지 말 것). 자른 뒤 가리면 경계에 걸친 값의 앞부분이 샌다
+                    lines = [dumps(type(e)(**{**asdict(e), "text": red.redact(e.text)[:text_max], "cwd": red.redact(e.cwd),
                                               "tool": red.redact(e.tool)})) + "\n"
                              for e in res.events]
                 except RedactError:

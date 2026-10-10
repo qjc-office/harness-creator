@@ -1,5 +1,5 @@
 import os, stat
-from hc.events import Event, dumps, loads, error_signature, clip, KINDS
+from hc.events import Event, dumps, loads, error_signature, clip, KINDS, RAW_MAX
 from hc.config import load_config, data_dir
 
 def test_roundtrip():
@@ -17,8 +17,10 @@ def test_error_signature_ignores_numbers_paths_hex():
 def test_error_signature_differs_on_message():
     assert error_signature("ENOENT missing") != error_signature("EACCES denied")
 
-def test_clip_500():
-    assert len(clip("가" * 900)) == 500
+def test_clip_default_is_raw_cap_not_text_limit():
+    # 파서 단계에서는 넉넉한 원문 상한만 건다. text_max_chars 는 수집기가 가린 뒤 적용한다
+    assert len(clip("가" * 900)) == 900
+    assert len(clip("가" * (RAW_MAX + 5))) == RAW_MAX
 
 def test_config_has_thresholds():
     c = load_config()
@@ -37,5 +39,5 @@ def test_error_signature_keeps_http_status():
 def test_error_signature_still_collapses_line_numbers():
     assert error_signature("error at line 12") == error_signature("error at line 99")
 
-def test_clip_uses_config_text_max_chars():
-    assert len(clip("가" * 5000)) == load_config()["text_max_chars"]
+def test_clip_explicit_limit():
+    assert len(clip("가" * 5000, 500)) == 500

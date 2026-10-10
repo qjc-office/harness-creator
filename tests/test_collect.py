@@ -457,3 +457,29 @@ def test_events_dir_created_private(cache, src, tmp_path, monkeypatch):
     finally:
         os.umask(old)
     assert (cache / "events").stat().st_mode & 0o777 == 0o700
+
+# --- 자르기는 가린 뒤에: 500자 경계에 걸친 시크릿·개인정보의 앞부분이 이벤트에 남지 않는다 ---
+from hc.redact import Redactor
+
+_BOUNDARY = [
+    ("sk-" + "ABCDEFGHIJKLMNOPQRSTUV", "sk-ABCDEFGH"),
+    ("900101" + "-1234567", "900101-1234"),
+    ("alice.secret" + "@example.com", "alice.secre"),
+    ("4111 1111 " + "1111 1111", "4111 1111 1"),
+]
+
+@pytest.mark.parametrize("value,prefix", _BOUNDARY, ids=["secret", "national_id", "email", "card"])
+def test_value_straddling_text_limit_not_leaked(cache, src, tmp_path, value, prefix):
+    pad = "x" * (500 - len(prefix) - 1) + " "           # 값 앞은 공백(단어 경계)
+    assert len(pad) + len(prefix) == 500               # 자르면 정확히 prefix 까지 남는 자리
+    _cc(tmp_path / "cc", "s1.jsonl", [_u(pad + value + " tail")])
+    collect(7, include_codex=True, sources=src, redactor=Redactor())
+    text = _events(cache)[0]["text"]
+    assert prefix not in text and len(text) <= 500
+
+def test_user_text_max_chars_is_respected(cache, src, tmp_path):
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "config.json").write_text('{"text_max_chars": 40}')
+    _cc(tmp_path / "cc", "s1.jsonl", [_u("y" * 300)])
+    collect(7, include_codex=True, sources=src, redactor=Redactor())
+    assert _events(cache)[0]["text"] == "y" * 40
