@@ -98,7 +98,7 @@ def test_lexicon_slot(tmp_path):
 
 def test_lexicon_list_format_and_label(tmp_path):
     lex = tmp_path / "l.json"; lex.write_text(json.dumps(["Zeta"]))
-    assert R(lexicon_files=[str(lex)], lexicon_label="L3").redact("zeta") == "[L3]"
+    assert R(lexicon_files=[str(lex)], lexicon_label="TERM").redact("zeta") == "[TERM]"
 
 def test_no_lexicon():
     r = R()
@@ -107,16 +107,16 @@ def test_no_lexicon():
 def test_pattern_slot_whole_and_replace(tmp_path):
     pf = tmp_path / "p.json"
     pf.write_text(json.dumps({"patterns": [
-        {"label": "L4", "regex": "(?<![a-z])(?:salary)(?![a-z])|급여", "flags": "i", "whole": True},
+        {"label": "STOCK", "regex": "(?<![a-z])(?:inventory)(?![a-z])|재고", "flags": "i", "whole": True},
         {"label": "MONEY", "regex": r"\d[\d,]*만원", "flags": "", "whole": False}]}), encoding="utf-8")
     r = R(pattern_files=[str(pf)])
-    assert r.redact("이번 달 급여 계산") == "[L4]"
-    assert r.redact("SALARY 표") == "[L4]"
+    assert r.redact("이번 달 재고 계산") == "[STOCK]"
+    assert r.redact("INVENTORY 표") == "[STOCK]"
     assert r.redact("versus") == "versus"
     assert r.redact("견적 3,200만원") == "견적 [MONEY]"
 
 @pytest.mark.parametrize("content", [None, "{broken", '{"patterns": []}', '{"patterns": [{"label": "x", "regex": "("}]}',
-                                     '{"patterns": [{"label": "L4", "regex": "a", "whole": "yes"}]}'])
+                                     '{"patterns": [{"label": "STOCK", "regex": "a", "whole": "yes"}]}'])
 def test_pattern_slot_fail_closed(tmp_path, content):
     pf = tmp_path / "p.json"
     if content is not None:

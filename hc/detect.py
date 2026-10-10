@@ -33,7 +33,7 @@ class EventLimitError(Exception):
     """탐지 창의 고유 이벤트 줄이 상한(config max_events)을 넘었다. 일부만 보고 성공으로 끝내지 않는다."""
 
 def _max_events(cfg=None) -> int:
-    """상한. 정본은 config max_events. HC_MAX_EVENTS는 테스트 훅이다(launchd는 설정하지 않는다)."""
+    """상한. 정본은 config max_events. HC_MAX_EVENTS는 테스트 훅이다(정기 실행 환경에서는 설정하지 않는다)."""
     env = os.environ.get("HC_MAX_EVENTS")
     return int(env) if env else int((cfg or load_config())["max_events"])
 
@@ -152,7 +152,8 @@ def detect_failure_loops(events, cfg) -> list:
             out.append(_finish("failure_loop", sig, [e for g in looping.values() for e in g], cfg))
     return out
 
-_PLACEHOLDER = re.compile(r"^\s*(\[(L4|L3|SECRET|[A-Z]+)\]\s*)+$")
+# 가림 자리표시만 남은 발화([SECRET]·[NAME]·사용자 정규식 라벨 등). 라벨 형식은 redact 의 패턴 라벨과 같다
+_PLACEHOLDER = re.compile(r"^\s*(\[[A-Z][A-Z0-9_]*\]\s*)+$")
 
 def _norm_instruction(text: str) -> str:
     s = text.lower()

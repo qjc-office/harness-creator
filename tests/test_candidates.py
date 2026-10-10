@@ -242,7 +242,7 @@ from hc import candidates as _cm
 
 def _fp(form, path, sids, title="t", action="create", summary="s", effect="e", global_rule=False, paths=None):
     """판정 공식: 근거(evidence)를 뺀 제안 내용의 정규 JSON sha1 앞 8자. 기본값은 cand()와 같다.
-    Task 10 fix: 상시 로드 여부(global_rule)와 로드 조건(proposed_change.paths)도 지문에 넣는다."""
+    상시 로드 여부(global_rule)와 로드 조건(proposed_change.paths)도 지문에 넣는다."""
     canon = {"form": form, "title": title, "signal_ids": sorted(sids), "global_rule": global_rule,
              "proposed_change": {"action": action, "path": path, "summary": summary, "paths": paths},
              "expected_effect": effect}
@@ -358,7 +358,7 @@ def test_no_incomplete_mark_without_real_errors(errors):
         st["errors"] = errors
     assert _first(render({"candidates": []}, st, 0, None)) == "# harness-creator 리포트: 후보 없음"
 
-# --- P1: 경로 끝 개행·제어 문자는 허용 경로가 아니다 ---
+# --- 경로 끝 개행·제어 문자는 허용 경로가 아니다 ---
 @pytest.mark.parametrize("form,path", [
     ("hook", "hooks/x.sh\n"),
     ("hook", "hooks/x.sh\r"),
@@ -533,7 +533,7 @@ def test_old_formula_record_no_longer_hides(cache):
 def test_fingerprint_tolerates_malformed_candidate(bad):
     assert len(_cm.fingerprint(cand(**bad))) == 8
 
-# --- Task 8: paths 조건, 후보 찾기, 승인 여부 ---
+# --- paths 조건, 후보 찾기, 승인 여부 ---
 def _rule_pc(**kw):
     pc = {"action": "create", "path": "rules/foo.md", "summary": "s"}
     pc.update(kw); return pc

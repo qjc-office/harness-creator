@@ -20,7 +20,7 @@ class CollectStats:
     errors: int = 0
     malformed: int = 0                 # 건너뛴 깨진 레코드 줄 수(형식 오류, 재시도 불가). > 0이면 그 주 실행은 불완전
     lexicon: bool = True
-    lexicon_terms: int | None = None   # 고객명 사전 건수. 가림기가 알려 주지 않으면 None
+    lexicon_terms: int | None = None   # 사용자 단어 목록 건수. 가림기가 알려 주지 않으면 None
     skipped_outside_source: int = 0    # 소스 루트 밖을 가리키는 심링크라 읽지 않은 세션 파일 수
     codex_included: bool = False       # 이번 수집에 Codex 소스를 넣었는가(첫 실행 동의 결과)
 

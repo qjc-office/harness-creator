@@ -273,7 +273,7 @@ def test_backups_private(cache, home):
     assert b and stat.S_IMODE(os.stat(b).st_mode) == 0o600
     assert stat.S_IMODE((cache / "backups").stat().st_mode) == 0o700
 
-# ---- 추가: 경로 안전·재검사·자원 회수 (원장 Ruling P19·심링크 지침) ----
+# ---- 추가: 경로 안전·재검사·자원 회수(심링크 포함) ----
 
 def test_symlink_target_outside_home_refused(cache, home, tmp_path_factory):
     outside = tmp_path_factory.mktemp("outside")          # tmp_path(= ~/.claude 의 부모) 밖
@@ -519,9 +519,9 @@ def test_backup_name_bound_to_rel(cache, home):
 @pytest.mark.parametrize("paths_block", [
     'paths: "**"\n', 'paths:\n  - "src/**"\n  - "**"\n', "paths: [lib/**]\n",              # 확장
     'paths: ["src/**"]\n', "paths: src/**\n", "paths:\n- 'src/**'\n",                       # 일치 변주
-    'paths:\n  - "src/**"\n\n  - "**"\n',                                                  # P1 빈 줄 뒤 항목
-    'paths:\n  - "src/**"\n  # c\n  - "**"\n',                                              # P2 주석 뒤 항목
-    'paths:\n  - "src/**"\npaths: "**"\n',                                                  # P3 중복 키
+    'paths:\n  - "src/**"\n\n  - "**"\n',                                                  # 빈 줄 뒤 항목
+    'paths:\n  - "src/**"\n  # c\n  - "**"\n',                                              # 주석 뒤 항목
+    'paths:\n  - "src/**"\npaths: "**"\n',                                                  # 중복 키
     'paths:\n  - "src/**"\n# top\npaths:\n  - "**"\n'])
 def test_rule_paths_forced_to_approved_canonical(cache, home, paths_block):
     _approve(cache, _cand())

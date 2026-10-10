@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools, re
 from .lang import LANGS, load_pack
 
-# 접두를 첫 40자 어디서든 찾는 언어(v1 한국어 규칙). 나머지 언어는 문장 첫머리만 본다.
+# 접두를 첫 40자 어디서든 찾는 언어(한국어 규칙). 나머지 언어는 문장 첫머리만 본다.
 # 영어·중국어는 "you are wrong"·"你现在是在乱改" 같은 실제 정정이 같은 말로 시작하기 때문이다.
 _PREFIX_ANYWHERE = frozenset({"ko"})
 

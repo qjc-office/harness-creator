@@ -17,7 +17,7 @@ def test_non_user_payloads():
 from hc.correction import is_resume
 
 def test_zh_and_en_corrections():
-    for t in ("不对，不要这样改", "你又错了吧！", "that's wrong, revert it"):   # is_correction 하한 5자(v1 그대로)를 넘는 표본
+    for t in ("不对，不要这样改", "你又错了吧！", "that's wrong, revert it"):   # is_correction 하한 5자를 넘는 표본
         assert is_correction(t), t
 
 def test_resume_phrases():

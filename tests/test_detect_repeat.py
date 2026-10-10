@@ -29,8 +29,8 @@ def test_non_user_payloads_excluded():
     evs = [u(s, "<task-notification> done </task-notification>") for s in "abc"]
     assert detect_repeated_instructions(evs, CFG) == []
 
-def test_l4_placeholder_events_not_clustered():
-    evs = [u(s, "[L4]") for s in "abcd"]
+def test_placeholder_only_events_not_clustered():
+    evs = [u(s, "[PII2]") for s in "abcd"]
     assert detect_repeated_instructions(evs, CFG) == []
 
 def test_rejected_signal_suppressed_until_doubled():

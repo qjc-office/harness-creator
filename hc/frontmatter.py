@@ -1,4 +1,4 @@
-"""마크다운 frontmatter의 단순 key: value 해석(v1 inventory._front 규칙). YAML 전체를 해석하지 않는다."""
+"""마크다운 frontmatter의 단순 key: value 해석. YAML 전체를 해석하지 않는다."""
 from __future__ import annotations
 import re
 

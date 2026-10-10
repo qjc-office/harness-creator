@@ -1,9 +1,9 @@
-"""후보 검증·결정 원장. 리포트 렌더 정본은 hc/report.py(아래 재노출은 v1 호환용)."""
+"""후보 검증·결정 원장. 리포트 렌더 정본은 hc/report.py(아래 재노출은 기존 import 경로 호환용)."""
 from __future__ import annotations
 import hashlib, json, re, time, unicodedata
 from .config import data_dir
 from .fsutil import append_line
-from .report import render, incomplete_reasons, stats_corrupt, parse_errors  # noqa: F401 (v1 호환 재노출)
+from .report import render, incomplete_reasons, stats_corrupt, parse_errors  # noqa: F401 (기존 import 경로 호환 재노출)
 
 FORMS = ("hook", "rule", "skill", "script", "agent", "memory")
 CREATABLE = ("hook", "rule", "skill")

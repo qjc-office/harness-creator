@@ -25,7 +25,7 @@ def test_untracked_files_are_scanned():
         probe.unlink()
 
 def test_gitignored_files_are_not_scanned():
-    """.gitignore로 뺀 로컬 전용 파일은 공개되지 않으므로 검사 대상이 아니다(P24)."""
+    """.gitignore로 뺀 로컬 전용 파일은 공개되지 않으므로 검사 대상이 아니다."""
     sys.path.insert(0, str(ROOT / "tools"))
     import check_public as cp
     probe = ROOT / ".pytest_cache" / "ignored-probe.txt"

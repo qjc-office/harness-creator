@@ -27,7 +27,7 @@ _log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
 _fail() { _log "FAIL $*"; printf 'harness-creator: %s\n' "$*" >&2; }
 _render_err() { "${CLI[@]}" render --error-kind "$1" --error "${2:-}" >> "$LOG" 2>&1; }
 
-# --- 동시 실행 잠금(v1 run-weekly.sh 와 같은 규칙) ---
+# --- 동시 실행 잠금(mkdir 원자 잠금 + pid 파일) ---
 _hc_lock_owner() { cat "$LOCK/pid" 2>/dev/null; }
 _hc_lock_state() {
   local d="$1" pid

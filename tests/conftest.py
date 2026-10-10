@@ -6,7 +6,7 @@ sys.path.insert(0, str(ROOT))
 
 @pytest.fixture
 def cache(tmp_path, monkeypatch):
-    """데이터 폴더. v1 테스트 이식을 쉽게 하려고 이름은 cache 그대로 둔다."""
+    """데이터 폴더. 테스트 전반이 cache 라는 이름으로 쓴다."""
     d = tmp_path / "cache"
     monkeypatch.setenv("HC_DATA_DIR", str(d))
     monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)

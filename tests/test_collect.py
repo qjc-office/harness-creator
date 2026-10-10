@@ -212,9 +212,9 @@ def test_cwd_redacted_with_same_redactor(cache, src, tmp_path, monkeypatch):
     rec = _u("hello")
     rec["cwd"] = "/Users/u/가나다상사-proj"
     _cc(tmp_path / "cc", "s1.jsonl", [rec])
-    collect(7, include_codex=True, sources=src, redactor=Redactor(lexicon_files=[str(lexp)], lexicon_label="L3"))
+    collect(7, include_codex=True, sources=src, redactor=Redactor(lexicon_files=[str(lexp)], lexicon_label="TERM"))
     ev = _events(cache)
-    assert ev and ev[0]["cwd"] == "~/[L3]-proj"
+    assert ev and ev[0]["cwd"] == "~/[TERM]-proj"
 
 # --- 사전 건수를 수집 통계에 싣는다 ---
 def test_lexicon_terms_reported(cache, src, tmp_path):
@@ -270,7 +270,7 @@ def real_red(tmp_path, monkeypatch):
     from hc.redact import Redactor
     lexp = tmp_path / "lex-tool.json"
     lexp.write_text(json.dumps({"orgs": ["Acme"], "people": []}), encoding="utf-8")
-    return Redactor(lexicon_files=[str(lexp)], lexicon_label="L3")
+    return Redactor(lexicon_files=[str(lexp)], lexicon_label="TERM")
 
 def _tool_use(tid, name, sid="s1"):
     return {"type": "assistant", "sessionId": sid, "timestamp": "t", "cwd": "/w",
@@ -287,7 +287,7 @@ def test_claude_tool_names_redacted(cache, src, tmp_path, real_red):
     tools = [e["tool"] for e in _events(cache)]
     raw = json.dumps(_events(cache), ensure_ascii=False)
     assert "Acme" not in raw and _GHP not in raw
-    assert tools[0] == "[L3]-Tool" and tools[1] == "[L3]-Tool"        # tool_call과 tool_error 둘 다
+    assert tools[0] == "[TERM]-Tool" and tools[1] == "[TERM]-Tool"        # tool_call과 tool_error 둘 다
     assert "[SECRET]" in tools[2]
     assert tools[3] == "Bash"                                       # 평범한 이름은 그대로
 
@@ -300,7 +300,7 @@ def test_codex_tool_names_redacted(cache, src, tmp_path, real_red):
     p.write_text("".join(json.dumps(r) + "\n" for r in recs), encoding="utf-8")
     collect(7, include_codex=True, sources=src, redactor=real_red)
     tools = [e["tool"] for e in _events(cache)]
-    assert tools == ["[L3]_lookup", "exec"]
+    assert tools == ["[TERM]_lookup", "exec"]
 
 # --- 소스 루트 밖을 가리키는 세션 파일 심링크는 따라가지 않는다 ---
 def _ext(tmp_path, name, text):
@@ -430,7 +430,7 @@ def test_codex_cursor_stores_redacted_cwd(cache, src, tmp_path):
     from hc.redact import Redactor
     lexp = tmp_path / "lex.json"
     lexp.write_text(json.dumps({"orgs": ["Acme"]}), encoding="utf-8")
-    red = Redactor(lexicon_files=[str(lexp)], lexicon_label="L3")
+    red = Redactor(lexicon_files=[str(lexp)], lexicon_label="TERM")
     d = tmp_path / "cx" / "2026" / "10" / "01"; d.mkdir(parents=True)
     p = d / "rollout-z.jsonl"
     p.write_text(json.dumps({"type": "session_meta", "timestamp": "t",
@@ -438,13 +438,13 @@ def test_codex_cursor_stores_redacted_cwd(cache, src, tmp_path):
     collect(7, include_codex=True, sources=src, redactor=red)
     raw = (cache / "cursor.json").read_text()
     assert "Acme" not in raw and "/Users/u" not in raw
-    assert json.loads(raw)[str(p)]["cwd"] == "~/[L3]-proj"
+    assert json.loads(raw)[str(p)]["cwd"] == "~/[TERM]-proj"
     with p.open("a") as fh:
         fh.write(json.dumps({"type": "response_item", "timestamp": "t", "payload": {"type": "message", "role": "user",
                              "content": [{"type": "input_text", "text": "hi"}]}}) + "\n")
     collect(7, include_codex=True, sources=src, redactor=red)
     ev = _events(cache)
-    assert ev and ev[-1]["cwd"] == "~/[L3]-proj" and ev[-1]["session_id"] == "cz"
+    assert ev and ev[-1]["cwd"] == "~/[TERM]-proj" and ev[-1]["session_id"] == "cz"
 
 def test_events_dir_created_private(cache, src, tmp_path, monkeypatch):
     import hc.collect as c

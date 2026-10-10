@@ -162,7 +162,7 @@ def test_propose_input_samples_identical_to_signal_file_so_quotes_validate(cache
     v = run(cache, "validate", str(judged))
     assert v.returncode == 0, v.stderr
 
-# --- Task 9 판정: 수집 뒤에 넣은 가림 단어도 detect가 신호 samples·context에 적용한다 ---
+# --- 수집 뒤에 넣은 가림 단어도 detect가 신호 samples·context에 적용한다 ---
 _NOW_ISO = "2026-10-09T12:00:00Z"
 _INSTR = "Acme PR 만들고 CI 통과하면 머지해줘"
 
