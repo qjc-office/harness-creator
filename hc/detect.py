@@ -222,7 +222,8 @@ def _decision_entries(d) -> list:
     return []
 
 def load_decisions() -> dict:
-    """decisions.jsonl에서 signal_id별 마지막 결정 {"decision","count"}. 해석 못 하는 줄은 건너뛴다."""
+    """decisions.jsonl에서 signal_id별 마지막 결정 {"decision","count"}. 해석 못 하는 줄은 건너뛴다.
+    reopen 줄은 그 신호들의 앞선 결정을 지운다."""
     p = data_dir() / "decisions.jsonl"
     out = {}
     if p.exists():
@@ -232,6 +233,10 @@ def load_decisions() -> dict:
             try:
                 d = json.loads(line)
             except ValueError:
+                continue
+            if isinstance(d, dict) and d.get("decision") == "reopen" and isinstance(d.get("signal_ids"), list):
+                for sid in d["signal_ids"]:
+                    out.pop(sid, None)       # 승인 뒤 undo·쓰기 실패: 억제를 푼다
                 continue
             for sid, decision, count in _decision_entries(d):
                 out[sid] = {"decision": decision, "count": count if isinstance(count, int) and not isinstance(count, bool) else 0}

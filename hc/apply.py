@@ -7,7 +7,7 @@ write 는 plan 을 처음부터 다시 계산해 그때 본 diff 와 같은지 �
 파일을 가리키면 거부한다. write·undo 도 같은 검사를 다시 한다."""
 from __future__ import annotations
 import difflib, hashlib, json, os, pathlib, posixpath, re, shlex, shutil, signal, subprocess, tempfile, time, unicodedata
-from .candidates import find_candidate, is_approved
+from .candidates import find_candidate, is_approved, reopen
 from .config import claude_home, data_dir, now
 from .effect import active_applied, record_applied, record_undo
 from .frontmatter import front
@@ -475,6 +475,18 @@ def _git_root(path: pathlib.Path):
 _SAME = ("candidate_id", "form", "global_rule", "paths", "files", "settings", "diff")
 
 def write(candidate_id: str) -> dict:
+    """적용. 실패하면(적용 중인 후보가 아닐 때) 승인을 거둬 신호 억제를 푼다. 다시 쓰려면 다시 승인한다."""
+    try:
+        return _write(candidate_id)
+    except Exception:
+        if _active(candidate_id) is None:
+            try:
+                reopen(candidate_id, "apply-write failed")
+            except OSError:
+                pass
+        raise
+
+def _write(candidate_id: str) -> dict:
     pp = _plans_dir() / f"{candidate_id}.json"
     if not pp.is_file():
         raise ApplyError(f"plan 없음: 먼저 apply-plan 을 실행한다 ({candidate_id})")
@@ -567,5 +579,6 @@ def undo(candidate_id: str, force: bool = False) -> dict:
         elif new != cur:
             _write_atomic(sp, _settings_text(new), sp.stat().st_mode & 0o777)
     record_undo(candidate_id)
+    reopen(candidate_id, "undo")          # 되돌린 후보의 승인 억제를 푼다(신호가 다시 후보가 될 수 있게)
     return {"candidate_id": candidate_id, "files": [r["rel"] for r in files],
             "git_root": _git_root(pathlib.Path(files[0]["real"]).parent) if files else None}

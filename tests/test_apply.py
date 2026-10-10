@@ -681,3 +681,42 @@ def test_verify_rejects_non_canonical_final_file(cache, home, monkeypatch):
     with pytest.raises(A.ApplyError):
         A.write(CID)
     assert not (home / "rules" / "x.md").exists()
+
+# --- 승인 뒤 undo·쓰기 실패면 승인 억제를 푼다(reopen 기록) ---
+from hc.candidates import pending, is_approved
+from hc.detect import load_decisions
+
+def _last_decision(cache):
+    return json.loads((cache / "decisions.jsonl").read_text().splitlines()[-1])
+
+def test_undo_reopens_signals_and_candidate(cache, home):
+    c = _cand()
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    A.write(CID)
+    assert "s" in load_decisions() and pending() == []
+    A.undo(CID)
+    rec = _last_decision(cache)
+    assert rec["decision"] == "reopen" and rec["candidate_id"] == CID and rec["signal_ids"] == ["s"]
+    assert "s" not in load_decisions()                  # 신호 억제가 풀린다
+    assert not is_approved(c) and [x["id"] for x in pending()] == [CID]
+
+def test_write_failure_reopens(cache, home):
+    (home / "settings.json").write_text("{}")
+    c = _hook_cand()
+    _approve(cache, c)
+    A.plan(_hook_draft(HOOK.replace("exit 0", "exit 1")))
+    with pytest.raises(A.ApplyError):
+        A.write(CID)
+    assert _last_decision(cache)["decision"] == "reopen"
+    assert not is_approved(c) and "s" not in load_decisions()
+
+def test_write_refused_when_already_applied_does_not_reopen(cache, home):
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    A.write(CID)
+    (cache / "plans").mkdir(exist_ok=True)
+    (cache / "plans" / f"{CID}.json").write_text("{}")
+    with pytest.raises(A.ApplyError):
+        A.write(CID)
+    assert _last_decision(cache)["decision"] == "approve"   # 적용 중인 후보의 억제는 그대로

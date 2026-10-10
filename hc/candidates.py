@@ -180,15 +180,28 @@ def _complete_record(rec) -> bool:
             and isinstance(rec.get("signal_ids"), list) and bool(rec["signal_ids"])
             and isinstance(rec.get("signal_counts"), dict))
 
-def _decided_fingerprints(text: str) -> set:
-    """해석되는 온전한 레코드의 지문만. 중단된 쓰기로 잘린 줄은 미결로 남긴다."""
-    out = set()
+def _reopen_record(rec) -> bool:
+    """승인 뒤 undo·쓰기 실패로 승인을 거둔 기록. 이 지문은 다시 미결이 되고 신호 억제도 풀린다."""
+    return (isinstance(rec, dict) and rec.get("decision") == "reopen"
+            and isinstance(rec.get("fingerprint"), str) and len(rec["fingerprint"]) == 8
+            and isinstance(rec.get("signal_ids"), list))
+
+def _records(text: str):
     for line in text.splitlines():
         try:
             rec = json.loads(line)
         except ValueError:
             continue
-        if _complete_record(rec):
+        if _complete_record(rec) or _reopen_record(rec):
+            yield rec
+
+def _decided_fingerprints(text: str) -> set:
+    """해석되는 온전한 레코드의 지문만. 중단된 쓰기로 잘린 줄은 미결로 남긴다. reopen 은 그 지문을 미결로 되돌린다."""
+    out = set()
+    for rec in _records(text):
+        if rec["decision"] == "reopen":
+            out.discard(rec["fingerprint"])
+        else:
             out.add(rec["fingerprint"])
     return out
 
@@ -218,6 +231,22 @@ def decide(candidate_id: str, decision: str, reason: str) -> None:
            "reason": reason, "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     append_line(_decisions_path(), (json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8"))
 
+def reopen(candidate_id: str, reason: str) -> bool:
+    """이 후보의 마지막 결정이 approve면 reopen 기록을 남긴다(승인 억제 해제). 남겼으면 True."""
+    p = _decisions_path()
+    if not p.exists():
+        return False
+    last = None
+    for rec in _records(p.read_text(encoding="utf-8", errors="replace")):
+        if rec.get("candidate_id") == candidate_id:
+            last = rec
+    if last is None or last["decision"] != "approve":
+        return False
+    rec = {"candidate_id": candidate_id, "fingerprint": last["fingerprint"], "signal_ids": list(last["signal_ids"]),
+           "decision": "reopen", "reason": reason, "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    append_line(p, (json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8"))
+    return True
+
 def find_candidate(candidate_id: str):
     return next((c for c in _latest_candidates()["candidates"] if isinstance(c, dict) and c.get("id") == candidate_id), None)
 
@@ -227,11 +256,7 @@ def is_approved(c: dict) -> bool:
     if not p.exists():
         return False
     fp, last = fingerprint(c), None
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            rec = json.loads(line)
-        except ValueError:
-            continue
-        if _complete_record(rec) and rec["fingerprint"] == fp:
+    for rec in _records(p.read_text(encoding="utf-8", errors="replace")):
+        if rec["fingerprint"] == fp:
             last = rec["decision"]
     return last == "approve"

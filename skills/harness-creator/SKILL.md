@@ -13,7 +13,7 @@ Every command below is `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" <subcomma
 
 - no argument: steps 1 to 6.
 - `analyze`: step 1, then step 3 even if the report is fresh, then steps 4 to 6.
-- `undo <id>`: run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" undo <id>`. If it says a file was edited after applying, show which file and ask before re-running with `--force`. A created file without the `generated_by: harness-creator` marker is never deleted, even with `--force`; tell the user to check it by hand. Report the restored files. If `git_root` is set, ask whether to commit.
+- `undo <id>`: run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" undo <id>`. If it says a file was edited after applying, show which file and ask before re-running with `--force`. A created file without the `generated_by: harness-creator` marker is never deleted, even with `--force`; tell the user to check it by hand. Report the restored files and that the approval was withdrawn, so the signal can come back as a candidate. If `git_root` is set, ask whether to commit.
 - `forget`: explain that the collection cursor, collect-stats, events, signals, reports, logs, apply plans and drafts are deleted while config.json (consent and settings), decisions.jsonl, applied.jsonl, backups and the `disabled` kill switch stay, ask once, then run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" forget`.
 - `where`: run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cli.py" where` and show `data_dir` and `source`.
 
@@ -51,7 +51,7 @@ For rule, skill and hook:
    - a skill whose `name` differs from its folder name in `skills/<folder>/SKILL.md` (it can shadow another skill);
    - the frontmatter is regenerated on an existing user file and which keys disappear (read them off the diff).
 4. Ask with AskUserQuestion whether to write, and put each item from step 3 in the question itself so the user answers with them in view. Only on yes run `apply-write <id>`.
-   On no, write nothing and run `decide <id> reject --reason "<reason>"` with the user's reason, so the approval no longer stands. If `apply-write` fails, report the reason; the files were restored.
+   On no, write nothing and run `decide <id> reject --reason "<reason>"` with the user's reason, so the approval no longer stands. If `apply-write` fails, report the reason; the files were restored and the approval was withdrawn, so a retry needs `decide <id> approve` again.
 5. If the result has `git_root`, ask whether to commit there. Commit only the written files.
 
 ## 6. Report
