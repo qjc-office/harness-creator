@@ -84,7 +84,16 @@ def load_config() -> dict:
         if not isinstance(inc, str) or not inc:
             raise ConfigError(f"include entry is not a string: {inc!r}")
         cfg = _merge(cfg, {k: v for k, v in _read_json(expand(inc), "include config").items() if k != "include"})
-    return _merge(cfg, {k: v for k, v in user.items() if k != "include"})
+    cfg = _merge(cfg, {k: v for k, v in user.items() if k != "include"})
+    _check_text_max(cfg.get("text_max_chars"))
+    return cfg
+
+# 수집은 원문(최대 64KB)을 통째로 가린 뒤 이 길이로 자른다. 원문 상한보다 작은 양의 정수만 받는다
+TEXT_MAX_LIMIT = 60000
+
+def _check_text_max(v) -> None:
+    if isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= TEXT_MAX_LIMIT:
+        raise ConfigError(f"text_max_chars must be an integer from 1 to {TEXT_MAX_LIMIT}: {v!r}")
 
 def save_user_config(patch: dict) -> dict:
     from .fsutil import write_private

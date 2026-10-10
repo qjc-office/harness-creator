@@ -360,3 +360,8 @@ def test_validate_all_invalid_fails(cache, tmp_path):
     _sig_file(cache)
     j = tmp_path / "j.json"; j.write_text(json.dumps({"candidates": [_cand("지어낸 인용")]}))
     assert run(cache, "validate", str(j)).returncode == 2
+
+def test_bad_text_max_chars_is_rc6(cache):
+    cache.mkdir(); (cache / "config.json").write_text(json.dumps({"text_max_chars": "500"}))
+    r = run(cache, "collect", "--days", "1")
+    assert r.returncode == 6 and "Traceback" not in r.stderr and "text_max_chars" in r.stderr, r.stderr

@@ -106,3 +106,15 @@ def test_fallback_data_dir_gets_gitignore(tmp_path, monkeypatch):
 def test_explicit_data_dir_has_no_gitignore(cache):
     from hc.config import data_dir
     assert not (data_dir() / ".gitignore").exists()
+
+@pytest.mark.parametrize("bad", [-1, 0, "500", 1.5, True, None, 60001, 65536])
+def test_text_max_chars_must_be_bounded_int(cache, bad):
+    # 가림은 원문(최대 64KB) 전체에 건 뒤 이 길이로 자른다. 정수·범위 밖이면 수집 전에 멈춘다
+    C.save_user_config({"text_max_chars": bad})
+    with pytest.raises(C.ConfigError):
+        C.load_config()
+
+@pytest.mark.parametrize("ok", [1, 500, 60000])
+def test_text_max_chars_valid(cache, ok):
+    C.save_user_config({"text_max_chars": ok})
+    assert C.load_config()["text_max_chars"] == ok
