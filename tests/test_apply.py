@@ -1,7 +1,8 @@
-import json, os, stat, subprocess
+import json, os, re, stat, subprocess, time
 import pytest
 from hc import apply as A
 from hc.candidates import decide
+from hc.config import now as hc_now
 
 CID = "hc-2026-10-09-01"
 
@@ -28,6 +29,41 @@ def _cand(form="rule", path="rules/x.md", cid=CID, **kw):
 RULE = "---\nname: x\ndescription: d\npaths:\n  - \"src/**\"\ngenerated_by: harness-creator\ngenerated_at: 2026-10-09\ncandidate_id: hc-2026-10-09-01\n---\n# X\n"
 HOOK = "#!/bin/bash\n# generated_by: harness-creator\n# candidate_id: hc-2026-10-09-01\ncat >/dev/null\nexit 0\n"
 
+# 판정(fix round 4, 구조 전환): rule·skill frontmatter 는 초안 것을 버리고 apply 가 고정 키로 만든다.
+# 아래 헬퍼는 그 기대 블록과, Claude Code 로더처럼 자른(첫 `---` 에서 끝) 결과를 엄격하게 읽는 판독기다.
+_LOADER = re.compile(r"---\s*\n([\s\S]*?)---\s*\n?")
+
+def _today():
+    return time.strftime("%Y-%m-%d", time.localtime(hc_now()))
+
+def _fm(desc="d", paths=("src/**",), marked=True, name=None):
+    lines = ["---"] + ([f"name: {json.dumps(name, ensure_ascii=False)}"] if name is not None else [])
+    lines.append(f"description: {json.dumps(desc, ensure_ascii=False)}")
+    if paths:
+        lines += ["paths:"] + [f"  - {json.dumps(g, ensure_ascii=False)}" for g in paths]
+    if marked:
+        lines += ["generated_by: harness-creator", f'generated_at: "{_today()}"', f'candidate_id: "{CID}"']
+    return "\n".join(lines) + "\n---\n"
+
+def _rule_out(body="# X\n", **kw):
+    return _fm(**kw) + body
+
+def _loader_fm(text):
+    """로더 정규식으로 자른 블록을 정규형(`키: JSON`, `paths:` + `  - JSON`)만 받는 판독기로 읽는다. 다른 줄은 실패."""
+    m = _LOADER.match(text[1:] if text.startswith("﻿") else text)
+    assert m, text
+    out, key = {}, None
+    for line in m.group(1).splitlines():
+        if line.startswith("  - "):
+            assert key == "paths", line
+            out["paths"].append(json.loads(line[4:]))
+        elif line == "paths:":
+            key, out["paths"] = "paths", []
+        else:
+            k, v = line.split(": ", 1)
+            key, out[k] = k, (v if k == "generated_by" else json.loads(v))
+    return out
+
 def _approve(cache, c):
     _cands(cache, c)
     decide(c["id"], "approve", "ok")
@@ -42,7 +78,7 @@ def test_write_and_undo_create(cache, home):
     _approve(cache, _cand())
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
     entry = A.write(CID)
-    assert (home / "rules" / "x.md").read_text() == RULE
+    assert (home / "rules" / "x.md").read_text() == _rule_out()      # 판정 round 4: name 등 초안 키는 버리고 고정 키로 생성
     assert entry["files"][0]["created"] is True
     assert json.loads((cache / "applied.jsonl").read_text().splitlines()[0])["candidate_id"] == CID
     A.undo(CID)
@@ -72,18 +108,20 @@ def test_human_file_modify_keeps_no_marker(cache, home):
     ok = "---\nname: x\npaths:\n  - \"a/**\"\n---\n사람이 쓴 규칙\n보강 한 줄\n"
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": ok})
     A.write(CID)
-    # 판정(fix round 3): 기존 파일 수정도 paths 는 승인 범위(src/**) 정규형으로 바뀐다
-    assert (home / "rules" / "x.md").read_text() == ok.replace('"a/**"', '"src/**"')
+    # 판정(fix round 3·4): 기존 파일 수정도 paths 는 승인 범위로, frontmatter 는 고정 키로 새로 만들고 표지는 넣지 않는다
+    # (초안에 description 이 없어 후보 제목 "t" 로 채운다)
+    assert (home / "rules" / "x.md").read_text() == _rule_out("사람이 쓴 규칙\n보강 한 줄\n", desc="t", marked=False)
     A.undo(CID)
     assert (home / "rules" / "x.md").read_text().endswith("사람이 쓴 규칙\n")
 
-def test_rule_without_paths_fails_verification_and_rolls_back(cache, home):
+def test_rule_without_paths_gets_approved_paths(cache, home):
+    # 판정 round 4: 초안 frontmatter 를 버리고 승인 paths 로 만들므로, 초안에 paths 가 없어도 상시 로드 rule 이 되지 않는다
+    # (브리프 원안 기대값 "쓰기 뒤 검증 거부"는 이 구조에서 생길 수 없어 바꿈)
     _approve(cache, _cand())
     bad = RULE.replace('paths:\n  - "src/**"\n', "")
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": bad})
-    with pytest.raises(A.ApplyError):
-        A.write(CID)
-    assert not (home / "rules" / "x.md").exists()
+    A.write(CID)
+    assert _loader_fm((home / "rules" / "x.md").read_text())["paths"] == ["src/**"]
 
 def test_global_rule_allowed_without_paths(cache, home):
     _approve(cache, _cand(global_rule=True))
@@ -91,12 +129,18 @@ def test_global_rule_allowed_without_paths(cache, home):
     A.write(CID)
     assert (home / "rules" / "x.md").exists()
 
-def test_skill_requires_name_and_description(cache, home):
+def test_skill_description_falls_back_to_title(cache, home):
+    # 판정 round 4: name·description 은 초안에서 못 얻으면 후보 제목으로 채운다(브리프 원안 기대값 "거부"에서 바꿈)
     _approve(cache, _cand(form="skill", path="skills/s/SKILL.md"))
     A.plan({"candidate_id": CID, "form": "skill", "path": "skills/s/SKILL.md",
             "content": "---\nname: s\ngenerated_by: harness-creator\n---\n"})
+    A.write(CID)
+    assert (home / "skills" / "s" / "SKILL.md").read_text() == _fm(desc="t", name="s", paths=())
+
+def test_skill_without_usable_title_refused(cache, home):
+    _approve(cache, _cand(form="skill", path="skills/s/SKILL.md", title="a --- b"))
     with pytest.raises(A.ApplyError):
-        A.write(CID)
+        A.plan({"candidate_id": CID, "form": "skill", "path": "skills/s/SKILL.md", "content": "# 본문\n"})
     assert not (home / "skills" / "s").exists()
 
 def _hook_cand():
@@ -185,7 +229,7 @@ def test_write_through_symlinked_rules_dir(cache, home, tmp_path):
     _approve(cache, _cand())
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
     A.write(CID)
-    assert (home / "rules").is_symlink() and (ext / "x.md").read_text() == RULE
+    assert (home / "rules").is_symlink() and (ext / "x.md").read_text() == _rule_out()
 
 def test_symlinked_settings_kept(cache, home, tmp_path):
     real = tmp_path / "dotfiles" / "settings.json"; real.parent.mkdir(parents=True, exist_ok=True)
@@ -486,7 +530,7 @@ def test_rule_paths_forced_to_approved_canonical(cache, home, paths_block):
     draft = RULE.replace('paths:\n  - "src/**"\n', paths_block)
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": draft})
     A.write(CID)
-    assert (home / "rules" / "x.md").read_text() == RULE           # name·description·generated_by 보존, paths 정규형
+    assert (home / "rules" / "x.md").read_text() == _rule_out()    # round 4: 고정 키로 생성(description 은 초안 값)
 
 # ---- fix round 3: 정규형 강제 ----
 
@@ -496,7 +540,7 @@ def test_p4_existing_wide_paths_replaced(cache, home):
     _approve(cache, c)
     A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": '---\nname: x\npaths: "**"\n---\n사람 + 새\n'})
     A.write(CID)
-    assert (home / "rules" / "x.md").read_text() == '---\nname: x\npaths:\n  - "src/**"\n---\n사람 + 새\n'
+    assert (home / "rules" / "x.md").read_text() == _rule_out("사람 + 새\n", desc="t", marked=False)
 
 @pytest.mark.parametrize("pc_paths", [None, [], [""], "src/**"])
 def test_p6_non_global_rule_without_approved_paths_refused(cache, home, pc_paths):
@@ -524,8 +568,10 @@ def test_global_rule_paths_removed(cache, home):
             "content": RULE.replace('paths:\n  - "src/**"\n', 'paths: "**"\npaths:\n  - a\n')})
     A.write(CID)
     t = (home / "rules" / "x.md").read_text()
-    assert "paths" not in t and "name: x\ndescription: d\ngenerated_by" in t
+    assert "paths" not in t and t == _rule_out(paths=())
 
+# 판정 round 4: 초안 frontmatter 는 버리므로 YAML 형식이 무엇이든 거부하지 않고, 최종 paths 는 승인 집합이다
+# (round 3 의 "단순하지 않은 frontmatter 거부" 기대값을 바꿈)
 @pytest.mark.parametrize("bad", [
     'base: &b\n  paths: "**"\n<<: *b\n',          # 병합 키·앵커
     '"paths": "**"\n',                             # 따옴표 키
@@ -534,22 +580,98 @@ def test_global_rule_paths_removed(cache, home):
     "\tpaths: '**'\n",                             # 탭 들여쓰기
     'note: *alias\n',                              # 별칭
 ])
-def test_non_simple_frontmatter_refused(cache, home, bad):
+def test_non_simple_draft_frontmatter_discarded(cache, home, bad):
     _approve(cache, _cand())
-    with pytest.raises(A.ApplyError):
-        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE.replace("generated_by", bad + "generated_by")})
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE.replace("generated_by", bad + "generated_by")})
+    A.write(CID)
+    assert _loader_fm((home / "rules" / "x.md").read_text())["paths"] == ["src/**"]
 
-def test_indented_frontmatter_refused(cache, home):
+@pytest.mark.parametrize("draft", [
+    '---\n  name: x\n  paths: "**"\n  generated_by: harness-creator\n---\n# X\n',     # 들여쓴 frontmatter
+    RULE.replace("---\n# X", "---x\npaths: \"**\"\n---\n# X"),                         # 정확하지 않은 닫는 줄
+])
+def test_odd_draft_frontmatter_discarded(cache, home, draft):
     _approve(cache, _cand())
-    with pytest.raises(A.ApplyError):
-        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md",
-                "content": '---\n  name: x\n  paths: "**"\n  generated_by: harness-creator\n---\n# X\n'})
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": draft})
+    A.write(CID)
+    t = (home / "rules" / "x.md").read_text()
+    assert _loader_fm(t)["paths"] == ["src/**"] and t.endswith("\n---\n# X\n")
 
-def test_closing_marker_must_be_exact(cache, home):
+# ---- fix round 4: 로더 정규식(첫 `---` 에서 끝, YAML 실패면 {}) 대응 ----
+
+_Y = {
+    "Y1": "---\nname: x\ndescription: d ---\npaths: src/**\ngenerated_by: harness-creator\n---\n# X\n",
+    "Y2": "---\nname: x\n# ---\npaths: src/**\ngenerated_by: harness-creator\n---\n# X\n",
+    "Y3": '---\nname: x\ndescription: d\npaths: src/**\nzz: "abc\ngenerated_by: harness-creator\n---\n# X\n',
+    "Y4": '---\nname: x\ndescription: "abc\npaths: "**"\ngenerated_by: harness-creator\n---\n# X\n',
+}
+
+@pytest.mark.parametrize("label", sorted(_Y))
+def test_loader_cut_paths_exactly_approved(cache, home, label):
+    _approve(cache, _cand())
+    p = A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": _Y[label]})
+    A.write(CID)
+    t = (home / "rules" / "x.md").read_text()
+    fm = _loader_fm(t)
+    assert fm["paths"] == ["src/**"] and fm["generated_by"] == "harness-creator" and fm["candidate_id"] == CID
+    assert t.startswith(p["files"][0]["frontmatter"]) and t.endswith("\n---\n# X\n")
+    assert "---" not in fm["description"]
+
+def test_y1_description_with_dashes_uses_title(cache, home):
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": _Y["Y1"]})
+    A.write(CID)
+    assert (home / "rules" / "x.md").read_text() == _rule_out(desc="t")
+
+def test_skill_loader_cut_has_name_and_description(cache, home):
+    _approve(cache, _cand(form="skill", path="skills/s/SKILL.md"))
+    A.plan({"candidate_id": CID, "form": "skill", "path": "skills/s/SKILL.md",
+            "content": '---\nname: s ---\ndescription: "설명: #1\nzz: "a\n---\n본문\n'})
+    A.write(CID)
+    fm = _loader_fm((home / "skills" / "s" / "SKILL.md").read_text())
+    assert fm["name"] == "t" and fm["description"] and "paths" not in fm
+
+def test_draft_without_frontmatter_is_all_body(cache, home):
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": "# X\n본문\n"})
+    A.write(CID)
+    assert (home / "rules" / "x.md").read_text() == _rule_out("# X\n본문\n", desc="t")
+
+def test_body_starting_with_dashes_kept_apart(cache, home):
+    _approve(cache, _cand())
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md",
+            "content": RULE.replace("---\n# X\n", '---\n---\npaths: "**"\n---\n# X\n')})
+    A.write(CID)
+    t = (home / "rules" / "x.md").read_text()
+    assert t == _fm() + '\n---\npaths: "**"\n---\n# X\n' and _loader_fm(t)["paths"] == ["src/**"]
+
+def test_unclosed_draft_frontmatter_refused(cache, home):
     _approve(cache, _cand())
     with pytest.raises(A.ApplyError):
-        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md",
-                "content": RULE.replace("---\n# X", "---x\npaths: \"**\"\n---\n# X")})
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": "---\nname: x\n# X\n"})
+
+@pytest.mark.parametrize("paths", [["**"], ["src/**", "**"], ["**/*"], ["./**"], ["*"], ["{src,**}"], ["src/**,**"]])
+def test_universal_approved_paths_refused(cache, home, paths):
+    c = _cand(); c["proposed_change"]["paths"] = paths
+    _approve(cache, c)
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    assert not (home / "rules" / "x.md").exists()
+
+@pytest.mark.parametrize("paths", [["src/---/**"], ["src/**\n"], ["a\nb/**"], ["src/\x85**"], [" src/**"]])
+def test_unserializable_approved_paths_refused(cache, home, paths):
+    c = _cand(); c["proposed_change"]["paths"] = paths
+    _approve(cache, c)
+    with pytest.raises(A.ApplyError):
+        A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+
+def test_generated_file_modify_keeps_markers(cache, home):
+    (home / "rules" / "x.md").write_text("---\nname: x\npaths: a\ngenerated_by: harness-creator\n---\n옛\n")
+    c = _cand(); c["proposed_change"]["action"] = "modify"
+    _approve(cache, c)
+    A.plan({"candidate_id": CID, "form": "rule", "path": "rules/x.md", "content": RULE})
+    A.write(CID)
+    assert (home / "rules" / "x.md").read_text() == _rule_out()
 
 def test_verify_rejects_non_canonical_final_file(cache, home, monkeypatch):
     _approve(cache, _cand())
