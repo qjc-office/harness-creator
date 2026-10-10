@@ -145,23 +145,72 @@ def test_propose_input_over_limit_rc3_writes_nothing(cache):
     assert "최대 크기" in r.stderr
 
 def test_propose_input_samples_identical_to_signal_file_so_quotes_validate(cache, tmp_path):
-    # 판정 입력의 samples는 신호 파일과 같은 가림 상태 그대로여야 한다(다시 가리거나 바꾸지 않는다).
+    # 판정 입력의 samples는 신호 파일 그대로여야 한다(propose-input은 다시 가리거나 바꾸지 않는다).
     # 그래야 모델이 입력에서 그대로 옮긴 인용이 validate의 quotes 정확 일치를 통과한다.
+    # 현재 설정의 가림 단어로 다시 가리는 일은 신호 파일을 쓰는 detect가 맡는다(아래 테스트).
     cache.mkdir(); (cache / "signals").mkdir()
-    samples = ["토큰 [SECRET] 다시 실패", "~/work/app 에서 Acme 빌드 실패", "  앞뒤 공백 유지  "]
+    samples = ["토큰 [SECRET] 다시 실패", "~/work/app 에서 [NAME] 빌드 실패", "  앞뒤 공백 유지  "]
     sig = {"id": "failure_loop:a", "samples": samples, "sessions": ["s1", "s2"], "groups": ["s1", "s2"],
            "surfaces": ["claude"], "days": ["2026-10-08"], "count": 6}
     (cache / "signals" / "2026-10-09.json").write_text(json.dumps({"generated_at": "x", "signals": [sig]}))
-    lex = tmp_path / "lex.json"; lex.write_text(json.dumps(["Acme"]))     # 나중에 넣은 가림 단어도 samples를 바꾸지 않는다
-    (cache / "config.json").write_text(json.dumps({"redact": {"lexicon_files": [str(lex)]}}))
     r = run(cache, "propose-input")
     assert r.returncode == 0, r.stderr
     sent = json.loads(pathlib.Path(r.stdout.strip()).read_text(encoding="utf-8"))["signals"][0]["samples"]
     stored = json.loads((cache / "signals" / "2026-10-09.json").read_text())["signals"][0]["samples"]
     assert sent == stored == samples
-    judged = tmp_path / "j.json"; judged.write_text(json.dumps({"candidates": [_cand(sent[0]), ]}))
+    judged = tmp_path / "j.json"; judged.write_text(json.dumps({"candidates": [_cand(sent[0])]}))
     v = run(cache, "validate", str(judged))
     assert v.returncode == 0, v.stderr
+
+# --- Task 9 판정: 수집 뒤에 넣은 가림 단어도 detect가 신호 samples·context에 적용한다 ---
+_NOW_ISO = "2026-10-09T12:00:00Z"
+_INSTR = "Acme PR 만들고 CI 통과하면 머지해줘"
+
+def _ev(sid, ts, kind, text, tool=""):
+    return json.dumps({"surface": "claude", "session_id": sid, "ts": ts, "cwd": "/w", "kind": kind,
+                       "text": text, "tool": tool, "error_sig": ""}, ensure_ascii=False)
+
+def _seed_raw_events(cache):
+    """가림 단어 목록이 없던 때 수집된 이벤트(원문 Acme가 남아 있다)."""
+    d = cache / "events"; d.mkdir(parents=True)
+    lines = [_ev(f"kp{i}", f"2026-10-08T0{i + 2}:00:00Z", "user_msg", _INSTR) for i in range(3)]
+    lines += [_ev("ca", "2026-10-07T03:00:00Z", "tool_call", "deploy Acme prod", "Bash"),
+              _ev("ca", "2026-10-07T03:01:00Z", "user_msg", "그렇게 하지 마"),
+              _ev("cb", "2026-10-08T09:00:00Z", "tool_call", "deploy Acme prod", "Bash"),
+              _ev("cb", "2026-10-08T09:01:00Z", "user_msg", "그렇게 하지 마")]
+    (d / "2026-10-08.jsonl").write_text("".join(l + "\n" for l in lines), encoding="utf-8")
+
+def _run_at(cache, *args):
+    env = {"HC_DATA_DIR": str(cache), "PATH": "/usr/bin:/bin", "HOME": str(cache.parent), "HC_NOW": _NOW_ISO}
+    return subprocess.run([sys.executable, str(CLI), *args], capture_output=True, text=True, env=env)
+
+def test_detect_redacts_samples_with_lexicon_added_after_collect(cache, tmp_path):
+    _seed_raw_events(cache)
+    lex = tmp_path / "lex.json"; lex.write_text(json.dumps(["Acme"]))
+    (cache / "config.json").write_text(json.dumps({"redact": {"lexicon_files": [str(lex)]}}))
+    d = _run_at(cache, "detect")
+    assert d.returncode == 0, d.stderr
+    raw_sig = pathlib.Path(d.stdout.strip()).read_text(encoding="utf-8")
+    assert "Acme" not in raw_sig
+    sigs = json.loads(raw_sig)["signals"]
+    rep = next(s for s in sigs if s["type"] == "repeated_instruction")
+    cor = next(s for s in sigs if s["type"] == "correction")
+    assert rep["samples"] == ["[NAME] PR 만들고 CI 통과하면 머지해줘"]
+    assert cor["context"] and all("[NAME]" in c for c in cor["context"])
+    p = _run_at(cache, "propose-input")
+    assert p.returncode == 0, p.stderr
+    assert "Acme" not in pathlib.Path(p.stdout.strip()).read_text(encoding="utf-8")
+    c = {**_cand(rep["samples"][0]), "signal_ids": [rep["id"]]}
+    judged = tmp_path / "j.json"; judged.write_text(json.dumps({"candidates": [c]}, ensure_ascii=False))
+    v = _run_at(cache, "validate", str(judged))
+    assert v.returncode == 0, v.stderr
+
+def test_detect_redactor_failure_writes_no_signal_file(cache, tmp_path):
+    _seed_raw_events(cache)
+    (cache / "config.json").write_text(json.dumps({"redact": {"pattern_files": [str(tmp_path / "missing.json")]}}))
+    d = _run_at(cache, "detect")
+    assert d.returncode == 3 and "Traceback" not in d.stderr and d.stdout.strip() == ""
+    assert not list((cache / "signals").glob("*.json")) if (cache / "signals").exists() else True
 
 def test_collect_requires_consent(cache):
     cache.mkdir()
