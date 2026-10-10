@@ -543,16 +543,21 @@ def test_verbose_array_init_not_isolated_fails(tmp_path, init):
     assert not (reports / f"{today}.judged.json").exists()
 
 def test_verbose_array_envelope_is_error_fails(tmp_path):
-    body = _array_stub(tmp_path, [{"type": "system", "subtype": "init"},
+    # init 은 격리 조건을 만족시켜 is_error 분기(rc 65)를 본다. 격리 위반(rc 66)으로 빠지면 안 된다
+    body = _array_stub(tmp_path, [{"type": "system", "subtype": "init", "tools": [], "mcp_servers": []},
                                   {"type": "result", "is_error": True, "result": "boom"}])
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 2 and "실패" in _first_line(report)
+    text = report.read_text(encoding="utf-8")
+    assert "rc=65" in text and "isolation" not in text and "오류 봉투" in _runlog(tmp_path)
 
 def test_verbose_array_without_result_fails(tmp_path):
-    body = _array_stub(tmp_path, [{"type": "system", "subtype": "init"},
+    body = _array_stub(tmp_path, [{"type": "system", "subtype": "init", "tools": [], "mcp_servers": []},
                                   {"type": "assistant", "message": {"content": [{"type": "text", "text": "{\"candidates\": []}"}]}}])
     r, reports, today, report = _run(tmp_path, body)
     assert r.returncode == 2 and "실패" in _first_line(report)
+    text = report.read_text(encoding="utf-8")
+    assert "rc=65" in text and "isolation" not in text and "result 없음" in _runlog(tmp_path)
 
 def test_no_consent_fails_rc5(tmp_path):
     def pre(cache):
