@@ -33,6 +33,16 @@ def data_dir() -> pathlib.Path:
     d = data_dir_path()
     d.mkdir(parents=True, exist_ok=True)
     os.chmod(d, 0o700)
+    if data_source() == "fallback":
+        # 폴백 폴더는 ~/.claude 아래다. ~/.claude 를 git 으로 관리해도 수집 데이터가 저장소에 섞이지 않게 한다
+        gi = d / ".gitignore"
+        try:
+            fd = os.open(gi, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            fd = None
+        if fd is not None:
+            with os.fdopen(fd, "w") as fh:
+                fh.write("*\n")
     return d
 
 def claude_home() -> pathlib.Path:

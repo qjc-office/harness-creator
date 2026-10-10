@@ -94,3 +94,15 @@ def test_versions_agree():
     mj = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
     assert pj["version"] == hc.__version__ == mj["plugins"][0]["version"] == "0.1.0"
     assert pj["name"] == mj["plugins"][0]["name"] == "harness-creator" and pj["license"] == "MIT"
+
+def test_fallback_data_dir_gets_gitignore(tmp_path, monkeypatch):
+    # 폴백 폴더는 ~/.claude 아래라 ~/.claude 를 git 으로 관리하는 사용자의 저장소에 섞이지 않게 한다
+    from hc.config import data_dir
+    monkeypatch.delenv("HC_DATA_DIR", raising=False)
+    d = data_dir()
+    assert d == tmp_path / "home" / ".claude" / "harness-creator"
+    assert (d / ".gitignore").read_text() == "*\n"
+
+def test_explicit_data_dir_has_no_gitignore(cache):
+    from hc.config import data_dir
+    assert not (data_dir() / ".gitignore").exists()
