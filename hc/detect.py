@@ -9,6 +9,7 @@ from .correction import is_correction, is_non_user, is_resume
 from .events import loads, parse_ts as _parse_ts
 from .gates import gate_signals
 from .lang import detect_lang
+from .redact import from_config
 
 @dataclass
 class Signal:
@@ -258,8 +259,16 @@ def _scope(events, days: int) -> dict:
             "resume_skipped": LAST_RESUME_SKIPPED,
             "earliest": min(dated)[1] if dated else "", "latest": max(dated)[1] if dated else ""}
 
+def _redact_signal(s: dict, red) -> dict:
+    """신호의 글(samples·context)을 현재 설정의 가림기로 한 번 더 가린다. 수집 뒤에 늘어난 가림 단어도
+    판정 입력에 실리지 않게 한다. 판정 입력·validate는 이 결과를 그대로 쓰므로 quotes 정확 일치가 유지된다."""
+    return {**s, "samples": [red.redact(x) for x in s.get("samples") or []],
+            "context": [red.redact(x) for x in s.get("context") or []]}
+
 def run_detect(days: int, now: float | None = None):
+    """신호 파일을 쓴다. 가림기를 만들지 못하면 RedactError로 끝나고 신호 파일을 쓰지 않는다(fail-closed)."""
     cfg = load_config()
+    red = from_config(cfg)
     now = _now() if now is None else now
     events = load_events(days, now, _max_events(cfg))
     raw = detect_corrections(events, cfg) + detect_failure_loops(events, cfg) + detect_repeated_instructions(events, cfg)
@@ -272,6 +281,6 @@ def run_detect(days: int, now: float | None = None):
     lt = time.localtime(now)
     path = out_dir / f"{time.strftime('%Y-%m-%d', lt)}.json"
     write_private(path, json.dumps({"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S", lt), "scope": scope,
-                                    "signals": [asdict(s) for s in sigs], "filtered": filtered, "observed": observed},
+                                    "signals": [_redact_signal(asdict(s), red) for s in sigs], "filtered": filtered, "observed": observed},
                                    ensure_ascii=False, indent=1))
     return path

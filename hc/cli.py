@@ -141,6 +141,8 @@ def _dispatch(a) -> int:
             print(run_detect(a.days or cfg["days"]))
         except EventLimitError as e:
             print(f"탐지 중단: {e}", file=sys.stderr); return 3
+        except RedactError as e:
+            print(f"가림 실패, 신호 파일을 쓰지 않음: {e}", file=sys.stderr); return 3
         return 0
     if a.cmd == "propose-input":
         # 신호 samples는 수집 때 이미 가렸다. 여기서 다시 가리거나 바꾸지 않는다(validate의 quotes 정확 일치가 깨진다)
