@@ -1,25 +1,65 @@
-# harness-creator
+<p align="center"><img src="assets/hero.jpg" alt="Harness Creator" width="100%"></p>
 
-내 Claude Code 세션(동의하면 Codex 세션도)을 읽어 반복 정정·실패 루프·반복 지시를 찾고, 인용과 세션 수를 근거로 규칙·훅·스킬 후보를 주당 최대 3건 제안하는 Claude Code 플러그인입니다. diff를 승인하기 전에는 아무것도 쓰지 않고, 쓸 때마다 백업을 남기며 `undo`로 되돌립니다.
+<p align="center"><b>반복해서 하는 Claude Code 정정을 규칙·훅·스킬로 바꿔 줍니다. 내가 승인한 것만 적용돼요.</b></p>
 
-[English](README.md) · [中文](README.zh.md)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License MIT"></a>
+  <img src="https://img.shields.io/badge/python-3.9%2B-3776AB.svg" alt="Python 3.9+">
+  <img src="https://img.shields.io/badge/Claude%20Code-plugin-D97757.svg" alt="Claude Code plugin">
+  <a href="https://github.com/qjc-office/harness-creator/actions/workflows/ci.yml"><img src="https://github.com/qjc-office/harness-creator/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
-## 설치
+<p align="center"><a href="README.md">English</a> · <b>한국어</b> · <a href="README.zh.md">中文</a></p>
 
-    /plugin marketplace add qjc-office/harness-creator
-    /plugin install harness-creator@harness-creator
+---
 
-설치 후 `/harness-creator`를 실행합니다. Python 3.9 이상, `claude --help`에 `--restricted`와 `--safe-mode`가 있는 Claude Code가 필요합니다. 둘 중 하나라도 없으면 판정을 아예 하지 않고 리포트 첫 줄에 CLI 업그레이드가 필요하다고 적습니다. 이 플래그를 빼고 판정하는 대체 경로는 없습니다. macOS와 Linux를 지원하며 Windows는 지원하지 않습니다.
+harness-creator는 내 Claude Code 세션(동의하면 Codex 세션도)을 읽어 반복 정정·실패 루프·반복 지시를 찾고, 인용과 세션 수를 근거로 규칙·훅·스킬 후보를 주당 최대 3건 제안하는 Claude Code 플러그인입니다. diff를 승인하기 전에는 아무것도 쓰지 않고, 쓸 때마다 백업을 남기며 `undo`로 되돌립니다.
 
-## 하는 일
+## 💡 왜 만들었나
+
+모델에게 "내 하네스에 뭐가 필요해?"라고 물으면 긴 목록이 돌아옵니다. 초기 시험에서는 제안 11건 중 쓸 만한 것이 1건뿐이었어요. 나머지는 이미 해소됐거나, 일괄 실행 한 번에 부풀려졌거나, 매 세션 로드되는 컨텍스트에 넣기엔 근거가 약했습니다.
+
+그래서 모델이 마지막 결정을 하지 않게 했습니다. 다섯 개의 게이트가 결과를 거르고, 대부분은 또 하나의 프롬프트가 아니라 일반 코드로 실행됩니다.
+
+| 게이트 | 걸러 내는 것 |
+|---|---|
+| G1 | 이미 해소된 신호 |
+| G2 | 일괄 실행 한 번으로 부풀려진 횟수 |
+| G3 | Codex에서만 나온 문제(참고 절로 이동) |
+| G4 | 근거가 약한 상시 로드 규칙 |
+| G5 | 주당 한도 3건을 넘는 후보 |
+
+## ✨ 주요 기능
+
+| | |
+|---|---|
+| 근거 우선 | 모든 후보에 인용과 세션 수가 붙습니다 |
+| 주당 최대 3건 | 적게, 대신 제대로 제안합니다 |
+| 수집 시점에 가림 | 시크릿·개인정보는 저장이나 전송 전에 가립니다 |
+| 잠근 판정기 | 도구 없음, MCP 서버 없음, 내 설정·CLAUDE.md·스킬·플러그인·훅 끔 |
+| diff·백업·undo | diff를 승인한 뒤에만 쓰고, 원본은 `backups/`에 남깁니다 |
+| 로컬 전용 | 통계 수집 없음, 네트워크는 내 `claude` CLI 호출뿐입니다 |
+
+## 🔧 작동 방식
+
+```mermaid
+flowchart LR
+    A[수집] --> B[가림]
+    B --> C[신호 감지]
+    C --> D["게이트 G1, G2"]
+    D --> E["판정 (도구 없음)"]
+    E --> F[검증]
+    F --> G["게이트 G3 ~ G5"]
+    G --> H[리포트]
+    H --> I{내가 승인}
+    I --> J["적용: diff, 백업, undo"]
+```
 
 1. 첫 실행에서 읽는 범위, 보내는 것과 크기, 예상 수집 시간 범위(분당 1000 MB 기준 추정, N~2N분으로 표시), Codex 포함 여부를 보여 주고 동의를 받습니다. Codex를 포함하면 가린 Codex 세션 발췌도 판정을 위해 내 `claude` CLI, 즉 Anthropic으로 보내집니다.
 2. 지난 7일을 수집하면서 시크릿·개인정보를 가리고 신호를 찾습니다. 이미 해소된 신호, 일괄 실행으로 부풀려진 신호, Codex에서만 생긴 문제, 근거가 약한 상시 로드 규칙, 3건을 넘는 후보는 코드가 걸러 냅니다.
 3. 가린 발췌를 내 `claude` CLI로 한 번 보냅니다. 도구 0개, MCP 서버 0개, 사용자 설정 무시, CLAUDE.md·스킬·플러그인·훅 끔(`--restricted --safe-mode --tools ""`)으로, 빈 임시 폴더에서 돌립니다. 발췌와 함께, 이미 있는 것을 다시 제안하지 않도록 기존 하네스 목록도 가려서 보냅니다. 규칙·스킬·에이전트·명령·설치 플러그인의 이름과 설명, 훅 스크립트 이름, 메모리 색인 파일(`MEMORY.md`)의 목록 줄 최대 200줄입니다. 동의 화면에도 적혀 있습니다.
 4. 후보를 보여 주고 고르게 합니다. 승인한 규칙·스킬·훅만 diff 확인 뒤 `~/.claude`에 씁니다. 메모리·스크립트·에이전트는 초안만 보여 줍니다.
 5. 다음 분석에서 적용한 하네스의 신호가 다시 나왔는지 알려 줍니다.
-
-명령: `/harness-creator`, `/harness-creator analyze`, `/harness-creator undo <id>`, `/harness-creator forget`, `/harness-creator where`.
 
 ### 규칙·스킬을 쓰는 방식
 
@@ -29,7 +69,26 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 
 훅은 `apply-plan`이 네트워크 호출, `eval`, 디코드 후 실행, 홈 폴더 밖 쓰기, 시크릿 읽기를 경고합니다. 이 경고는 스크립트를 실행해 본 결과가 아니라 글자 패턴으로 보는 휴리스틱입니다. 경고가 없다고 안전이 보장되지 않으니 스크립트를 직접 읽어 보세요.
 
-## 데이터
+## 📦 설치
+
+```
+/plugin marketplace add qjc-office/harness-creator
+/plugin install harness-creator@harness-creator
+```
+
+설치 후 `/harness-creator`를 실행합니다. Python 3.9 이상, `claude --help`에 `--restricted`와 `--safe-mode`가 있는 Claude Code가 필요합니다. 둘 중 하나라도 없으면 판정을 아예 하지 않고 리포트 첫 줄에 CLI 업그레이드가 필요하다고 적습니다. 이 플래그를 빼고 판정하는 대체 경로는 없습니다. macOS와 Linux를 지원하며 Windows는 지원하지 않습니다.
+
+## 🚀 사용법
+
+| 명령 | 하는 일 |
+|---|---|
+| `/harness-creator` | 첫 실행이면 동의를 받고, 이어서 분석과 후보 제안 |
+| `/harness-creator analyze` | 분석 실행 |
+| `/harness-creator undo <id>` | 적용한 변경을 백업에서 복원 |
+| `/harness-creator forget` | 수집한 데이터 삭제(범위는 아래) |
+| `/harness-creator where` | 데이터 폴더 위치 출력 |
+
+## 🔒 개인정보와 안전
 
 플러그인 데이터 폴더(없으면 `~/.claude/harness-creator/`)에 폴더 0700, 파일 0600으로 둡니다. 이벤트·신호·판정 입력 파일은 30일 뒤 지웁니다. 폴백 폴더에는 `*` 한 줄짜리 `.gitignore`를 만들어 `~/.claude`를 git으로 관리해도 수집 데이터가 섞이지 않게 합니다. 통계 수집은 없고, 네트워크는 내 `claude` CLI 호출뿐입니다. 폴더 위치는 `/harness-creator where`로 확인합니다.
 
@@ -37,7 +96,7 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 
 분석을 멈추려면 데이터 폴더에 빈 `disabled` 파일을 만들거나 `HARNESS_CREATOR_DISABLED=1`을 설정합니다.
 
-## 설정
+## ⚙️ 설정
 
 데이터 폴더의 `config.json`. 모두 선택입니다.
 
@@ -55,7 +114,7 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 
 지정한 파일을 읽지 못하면 가리지 않은 채 진행하지 않고 수집을 멈춥니다.
 
-## 한계
+## ⚠️ 한계
 
 ### 가림이 놓치는 것
 
@@ -71,7 +130,8 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 - `-`로 시작하는 플래그 값(`--password -abc...`)
 - XML 요소(`<password>...</password>`)
 - `Authorization: Basic` 헤더
-- 같은 종류의 따옴표를 이스케이프하지 않은 따옴표로 감싼 값(`password="ab"cdefgh"`): 안쪽 따옴표에서 가림이 멈추고 나머지 값은 그대로 보입니다
+- 같은 종류의 따옴표를 이스케이프하지 않은 따옴표로 감싼 값(`password***MASKED***efgh"`): 안쪽 따옴표에서 가림이 멈추고 나머지 값은 그대로 보입니다
+- 64KB를 넘는 단일 메시지의 끝 경계에 걸친 값은 앞부분이 남을 수 있습니다
 - 단어 목록에 없는 고유명사(고객·프로젝트·사람 이름)
 
 `redact.lexicon_files`로 단어 목록을, `redact.pattern_files`로 정규식을 직접 보강할 수 있습니다. 둘 다 지정한 파일을 읽지 못하면 수집을 멈춥니다.
@@ -80,10 +140,22 @@ glob이 거의 모든 파일에 걸리는 규칙(`**/*.*`, `@(**)` 등)이나 `n
 
 중국어·영어 정정 패턴은 합성 표본으로만 확인해서 실제 정확도를 재지 않았습니다. 처음 2주는 후보를 직접 읽고 실제 상황과 맞지 않는 것은 기각해 주세요. 기각한 신호는 발생 횟수가 두 배가 될 때까지 다시 제안하지 않습니다.
 
-## 제거
+## ❓ FAQ
 
-`/harness-creator undo <id>`로 적용한 하네스를 되돌린 뒤 `/plugin uninstall harness-creator`.
+**물어보지 않고 내 파일을 바꾸나요?** 아니요. 규칙·스킬·훅은 diff를 승인한 뒤에만 쓰고, 메모리·스크립트·에이전트는 초안만 보여 줍니다.
 
-## 라이선스
+**되돌릴 수 있나요?** `/harness-creator undo <id>`로 됩니다. 원본은 `backups/`에 남고, `forget`도 이 폴더는 지우지 않아요.
 
-MIT
+**내 컴퓨터 밖으로 나가는 게 뭔가요?** 가린 발췌와 가린 기존 하네스 목록이 내 `claude` CLI, 즉 Anthropic으로 갑니다. Codex를 포함하면 가린 Codex 발췌도 같은 경로로 갑니다. 그 밖에는 보내지 않습니다.
+
+**끄려면요?** 데이터 폴더에 빈 `disabled` 파일을 만들거나 `HARNESS_CREATOR_DISABLED=1`을 설정하세요.
+
+**제거는요?** `/harness-creator undo <id>`로 적용한 하네스를 되돌린 뒤 `/plugin uninstall harness-creator`를 실행합니다.
+
+## 📄 라이선스
+
+MIT. Copyright QJC (Quantum Jump Club).
+
+---
+
+<sub>비공식 커뮤니티 플러그인입니다. Anthropic과 제휴, 보증, 후원 관계가 없습니다. Anthropic 로고와 Claude는 Anthropic, PBC의 상표입니다.</sub>
