@@ -157,13 +157,16 @@ def _decisions_path():
 def fingerprint(c: dict) -> str:
     """후보 제안 내용 지문(정규 JSON의 sha1 앞 8자). 결정은 id가 아니라 이 값에 묶인다.
     - 같은 날 재실행에서 id가 재사용돼도 결정이 다른 후보로 번지지 않는다.
-    - 형태·제목·신호(정렬)·변경(action·path·summary)·기대 효과 중 하나라도 바뀌면 새 지문이라 다시 미결이 된다.
+    - 형태·제목·신호(정렬)·변경(action·path·summary·paths)·상시 로드(global_rule)·기대 효과 중 하나라도 바뀌면
+      새 지문이라 다시 미결이 된다. 로드 범위가 바뀐 후보에 옛 승인이 이어지면 안 되기 때문이다(적용 단계가 이 지문을 본다).
     - 근거(evidence: 인용·세션 수·기간)는 매주 바뀌므로 넣지 않는다. 신호 단위 억제는 detect.suppress가 맡는다."""
     pc = c.get("proposed_change") if isinstance(c.get("proposed_change"), dict) else {}
     sids = c.get("signal_ids") if isinstance(c.get("signal_ids"), list) else []
+    paths = pc.get("paths")
     canon = {"form": c.get("form"), "title": c.get("title"),
-             "signal_ids": sorted(str(x) for x in sids),
-             "proposed_change": {"action": pc.get("action"), "path": pc.get("path"), "summary": pc.get("summary")},
+             "signal_ids": sorted(str(x) for x in sids), "global_rule": bool(c.get("global_rule")),
+             "proposed_change": {"action": pc.get("action"), "path": pc.get("path"), "summary": pc.get("summary"),
+                                 "paths": sorted(str(x) for x in paths) if isinstance(paths, list) else paths},
              "expected_effect": c.get("expected_effect")}
     text = json.dumps(canon, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]

@@ -412,14 +412,17 @@ def test_tampered_mode_before_masked(cache, home):
 def test_rollback_failure_does_not_hide_original(cache, home, monkeypatch):
     (home / "settings.json").write_text("{}")
     _approve(cache, _hook_cand())
-    A.plan(_hook_draft(HOOK.replace("exit 0", "exit 1")))
+    A.plan(_hook_draft())
+    def ledger_fail(entry):
+        raise OSError("원장 쓰기 실패 흉내")
     def boom(*a, **k):
         raise OSError("복원 실패 흉내")
-    monkeypatch.setattr(A, "_restore", boom)
+    monkeypatch.setattr(A, "record_applied", ledger_fail)
+    monkeypatch.setattr(A, "_restore", boom)          # settings 복원이 실패해도
     with pytest.raises(A.ApplyError) as ei:
         A.write(CID)
-    assert "종료 코드 1" in str(ei.value) and "복원 실패 흉내" in str(ei.value)
-    assert not (home / "hooks" / "harness-creator" / f"{CID}.sh").exists()
+    assert "원장 쓰기 실패 흉내" in str(ei.value) and "복원 실패 흉내" in str(ei.value)
+    assert not (home / "hooks" / "harness-creator" / f"{CID}.sh").exists()   # 나머지 롤백은 계속된다
 
 def test_hook_runs_before_settings_entry(cache, home):
     sp = home / "settings.json"; sp.write_text("{}")

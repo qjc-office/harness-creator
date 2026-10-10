@@ -26,7 +26,7 @@ _PATHS = {
     "hook": re.compile(r"^hooks/harness-creator/hc-\d{4}-\d{2}-\d{2}-\d{2}\.sh$"),
 }
 _HOOK_WARN = (
-    ("network", re.compile(r"(?<![\w-])(curl|wget|nc|ncat|ssh|scp)(?![\w-])")),
+    ("network", re.compile(r"(?<![\w-])(curl|wget|nc|ncat|ssh|scp)(?![\w-])|/dev/(tcp|udp)/")),
     ("eval", re.compile(r"(?<![\w-])eval(?![\w-])")),
     ("decode-and-run", re.compile(r"base64\s+(-d|-D|--decode)[^\n|]*\|\s*(ba|z)?sh\b")),
     ("secret-read", re.compile(r"\.env\b|id_rsa|id_ed25519|\.pem\b|\.netrc|\.aws/credentials")),
@@ -120,10 +120,25 @@ def _mkdirs(d: pathlib.Path) -> list:
         made.append(str(m))
     return made
 
-def _rmdirs(dirs: list) -> None:
-    for d in reversed(dirs or []):
-        p = pathlib.Path(d)
-        if p.is_dir() and not p.is_symlink() and not any(p.iterdir()) and _under(d, _boundary()):
+def _own_dirs(rel) -> set:
+    """지워도 되는 폴더: rel 의 둘째 단계 이하 상위 폴더(skills/<slug>, hooks/harness-creator)를 ~/.claude 안의 논리
+    경로로 짚어 푼 실제 위치. 첫 단계(rules·skills·hooks)와 심링크 자체는 넣지 않는다. 원장(applied.jsonl)은 세션이
+    고칠 수 있으므로 기록된 created_dirs 는 이 집합과 겹치는 것만 믿는다."""
+    if not isinstance(rel, str):
+        return set()
+    parts = pathlib.PurePosixPath(rel).parts[:-1]
+    out = set()
+    for i in range(2, len(parts) + 1):
+        logical = claude_home().joinpath(*parts[:i])
+        if not logical.is_symlink():
+            out.add(os.path.realpath(str(logical)))
+    return out
+
+def _rmdirs(dirs, rel) -> None:
+    own = _own_dirs(rel)
+    for d in reversed(dirs if isinstance(dirs, list) else []):
+        p = pathlib.Path(str(d))
+        if str(d) in own and p.is_dir() and not p.is_symlink() and not any(p.iterdir()):
             p.rmdir()
 
 def _load_settings(p: pathlib.Path) -> dict:
@@ -212,6 +227,8 @@ def _build(draft) -> dict:
     exists = real.exists()
     old = real.read_text(encoding="utf-8", errors="replace") if exists else ""
     generated_before = MARK in old
+    if exists and (c.get("proposed_change") or {}).get("action") == "create":
+        raise ApplyError(f"후보는 새 파일 만들기(create)인데 이미 파일이 있다: {rel}")
     if exists and not generated_before and MARK in content:
         raise ApplyError("사람이 쓴 파일에 harness-creator 표지를 넣지 않는다")
     if not exists and MARK not in content:
@@ -258,7 +275,8 @@ def _run_hook(command: str, event: str):
             return None, ""
     return proc.returncode, out
 
-def _verify(p: dict) -> list:
+def _verify_file(p: dict) -> list:
+    """파일 검증. hook 은 settings 에 항목을 넣기 전에 실행해 본다(살아 있는 세션이 검증 전 훅을 집어 가지 않게)."""
     errs = []
     f = p["files"][0]
     text = pathlib.Path(f["real"]).read_text(encoding="utf-8", errors="replace")
@@ -273,13 +291,6 @@ def _verify(p: dict) -> list:
             errs.append("skill frontmatter 에 name·description 필요")
     elif p["form"] == "hook":
         st = p["settings"]
-        try:
-            s = json.loads(pathlib.Path(st["real"]).read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
-            return [f"settings.json 재파싱 실패: {e}"]
-        if not any(isinstance(h, dict) and st["command"] == h.get("command")
-                   for g in (s.get("hooks") or {}).get(st["event"], []) for h in (g.get("hooks") or [])):
-            errs.append("settings.json 에 훅 항목이 없다")
         rc, out = _run_hook(st["command"], st["event"])
         if rc is None:
             return errs + [f"훅이 {HOOK_TIMEOUT}초 안에 끝나지 않았다"]
@@ -291,6 +302,16 @@ def _verify(p: dict) -> list:
             except ValueError:
                 errs.append("훅 stdout 은 비었거나 JSON 이어야 한다")
     return errs
+
+def _verify_settings(st: dict) -> list:
+    try:
+        s = json.loads(pathlib.Path(st["real"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return [f"settings.json 재파싱 실패: {e}"]
+    if not any(isinstance(h, dict) and st["command"] == h.get("command")
+               for g in (s.get("hooks") or {}).get(st["event"], []) for h in (g.get("hooks") or [])):
+        return ["settings.json 에 훅 항목이 없다"]
+    return []
 
 def _restore(path: pathlib.Path, backup: str, mode: int) -> None:
     tmp = path.with_name(f".{path.name}.restore.{os.getpid()}")
@@ -304,8 +325,19 @@ def _undo_record(r: dict) -> None:
         if real.is_file():
             real.unlink()
     else:
-        _restore(real, r["backup"], r.get("mode_before", 0o644))
-    _rmdirs(r.get("created_dirs"))
+        mode = r.get("mode_before")
+        _restore(real, r["backup"], (mode if isinstance(mode, int) and not isinstance(mode, bool) else 0o644) & 0o777)
+    _rmdirs(r.get("created_dirs"), r.get("rel"))
+
+def _rollback(records: list, srec) -> list:
+    """기록마다 따로 되돌리고, 실패는 모아서 돌려준다(하나가 실패해도 나머지는 계속한다)."""
+    fails = []
+    for r in ([srec] if srec else []) + list(reversed(records)):
+        try:
+            _undo_record(r)
+        except Exception as e:
+            fails.append(f"{r.get('rel') or 'settings.json'}: {e}")
+    return fails
 
 def _backup_dir(cid: str) -> pathlib.Path:
     root = data_dir() / "backups"
@@ -363,29 +395,48 @@ def write(candidate_id: str) -> dict:
             rec["created_dirs"] = _mkdirs(pathlib.Path(f["real"]).parent)
             _write_atomic(pathlib.Path(f["real"]), f["content"], f["mode"])
             rec["sha_after"] = _sha(pathlib.Path(f["real"]))
-        if st:
+        errs = _verify_file(p)
+        if not errs and st:
             sp = pathlib.Path(st["real"])
             cur = _load_settings(sp)
             srec = _start_record(st["real"], bdir, "settings", {})
             srec["created_dirs"] = _mkdirs(sp.parent)
             _write_atomic(sp, _settings_text(_add_hook(cur, st)), srec["mode_before"] or 0o600)
-        errs = _verify(p)
+            errs = _verify_settings(st)
         if errs:
-            raise ApplyError("검증 실패, 되돌렸다: " + "; ".join(errs))
+            raise ApplyError("검증 실패, 되돌린다: " + "; ".join(errs))
         entry = {"candidate_id": candidate_id, "form": p["form"], "signal_ids": p.get("signal_ids", []),
                  "files": records, "settings": srec}
         record_applied(entry)
-    except BaseException:
-        if srec:
-            _undo_record(srec)
-        for r in reversed(records):
-            _undo_record(r)
+    except BaseException as exc:
+        fails = _rollback(records, srec)
+        if fails:
+            raise ApplyError(f"{exc} / 되돌리기 일부 실패(백업 {bdir} 에서 손으로 복구): " + "; ".join(fails)) from exc
         raise
     try:
         pp.unlink()
     except FileNotFoundError:
         pass
     return {**entry, "git_root": _git_root(pathlib.Path(records[0]["real"]).parent)}
+
+def _check_undo_record(form, r, broot: str, force: bool) -> None:
+    """원장(applied.jsonl)은 세션이 고칠 수 있어 그대로 믿지 않는다. 하나라도 걸리면 undo 전체를 거부한다."""
+    if not isinstance(r, dict):
+        raise ApplyError("적용 기록 형식이 아니다(원장 손상). 손으로 확인한다")
+    if str(_target(form, r.get("rel"))) != r.get("real"):
+        raise ApplyError(f"적용 뒤 실제 위치(심링크)가 바뀌었다: {r.get('rel')}. 손으로 확인한다")
+    if not isinstance(r.get("sha_after"), str):
+        raise ApplyError(f"적용 기록에 sha_after 가 없다(원장 손상): {r.get('rel')}. 손으로 확인한다")
+    real = pathlib.Path(r["real"])
+    if not r.get("created"):
+        b = r.get("backup")
+        if not (isinstance(b, str) and _under(os.path.realpath(b), broot) and os.path.isfile(b)
+                and os.path.basename(b).endswith(f"-{real.name}")):
+            raise ApplyError(f"백업이 없어 되돌릴 수 없다: {r.get('rel')}")
+    if real.exists() and _sha(real) != r["sha_after"] and not force:
+        raise ApplyError(f"적용 뒤 사용자가 고친 파일: {r['rel']}. 확인 후 --force 로 되돌린다")
+    if r.get("created") and real.exists() and MARK not in real.read_text(encoding="utf-8", errors="replace"):
+        raise ApplyError(f"'{MARK}' 표지가 없는 파일은 지우지 않는다(--force 여도): {r.get('rel')}")
 
 def undo(candidate_id: str, force: bool = False) -> dict:
     e = _active(candidate_id)
@@ -395,14 +446,7 @@ def undo(candidate_id: str, force: bool = False) -> dict:
     broot = os.path.realpath(str(data_dir() / "backups" / candidate_id))
     # 먼저 전부 검사하고, 하나라도 걸리면 아무것도 바꾸지 않는다
     for r in files:
-        if str(_target(e.get("form"), r.get("rel"))) != r.get("real"):
-            raise ApplyError(f"적용 뒤 실제 위치(심링크)가 바뀌었다: {r.get('rel')}. 손으로 확인한다")
-        if not r.get("created") and not (r.get("backup") and _under(os.path.realpath(r["backup"]), broot)
-                                         and os.path.isfile(r["backup"])):
-            raise ApplyError(f"백업이 없어 되돌릴 수 없다: {r.get('rel')}")
-        real = pathlib.Path(r["real"])
-        if real.exists() and r.get("sha_after") and _sha(real) != r["sha_after"] and not force:
-            raise ApplyError(f"적용 뒤 사용자가 고친 파일: {r['rel']}. 확인 후 --force 로 되돌린다")
+        _check_undo_record(e.get("form"), r, broot, force)
     srec, cur, sp = e.get("settings"), None, None
     if srec:
         sp = _resolve("settings.json")
@@ -415,7 +459,6 @@ def undo(candidate_id: str, force: bool = False) -> dict:
         new = _remove_hook(cur, candidate_id)
         if srec.get("created") and not new:
             sp.unlink()
-            _rmdirs(srec.get("created_dirs"))
         elif new != cur:
             _write_atomic(sp, _settings_text(new), sp.stat().st_mode & 0o777)
     record_undo(candidate_id)
