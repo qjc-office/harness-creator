@@ -6,9 +6,9 @@ write 는 plan 을 처음부터 다시 계산해 그때 본 diff 와 같은지 �
 바꾸지 않고 링크 대상에 쓰되, 링크를 끝까지 푼 실제 위치가 홈(~/.claude 의 부모) 밖이거나 파일 링크가 다른 이름의
 파일을 가리키면 거부한다. write·undo 도 같은 검사를 다시 한다."""
 from __future__ import annotations
-import difflib, hashlib, json, os, pathlib, posixpath, re, shlex, shutil, signal, subprocess, tempfile
+import difflib, hashlib, json, os, pathlib, posixpath, re, shlex, shutil, signal, subprocess, tempfile, time, unicodedata
 from .candidates import find_candidate, is_approved
-from .config import claude_home, data_dir
+from .config import claude_home, data_dir, now
 from .effect import active_applied, record_applied, record_undo
 from .frontmatter import front
 from .fsutil import write_private
@@ -59,82 +59,93 @@ def static_check(script: str) -> list:
         found.add("write-outside-home")
     return [label for label in _LABELS if label in found]
 
-# rule frontmatter paths 는 대조하지 않고 승인한 값의 정규형으로 다시 쓴다(fix round 3 판정). 우리 판독과 Claude Code 의
-# YAML 해석이 어긋나 승인 범위가 넓어지는 일(빈 줄·주석 뒤 항목, 중복 키, 병합 키 등)을 없애려고, frontmatter 는
-# 맨 앞 칸에서 시작하는 단순한 `키: 값` 줄만 받고 나머지 형식은 거부한다.
-_TOP_KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*) *:(?: +(.*))?$")
-_YAML_BREAKS = ("\r", "\x85", "\u2028", "\u2029", "\x00")
+# rule·skill frontmatter 는 초안 것을 버리고 apply 가 고정 키로 새로 만든다(fix round 4 판정, 구조 전환).
+# Claude Code 로더는 frontmatter 를 LOADER_FM 으로 자르고(줄 첫머리가 아니어도 처음 나오는 `---` 에서 끝남) YAML 로 읽으며,
+# 해석이 실패하면 {} 로 보아 paths 없는 rule 을 상시 로드한다. 초안을 편집하면 그 파서와 어긋날 여지가 남으므로, 값은 한 줄
+# JSON 문자열로만 쓰고 `---`·제어 문자를 거부해 "우리가 만든 블록 = 로더가 자르는 블록"이 되게 한다.
+LOADER_FM = re.compile(r"---\s*\n([\s\S]*?)---\s*\n?")
+_BAD_CATS = ("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp")   # 제어·서식·대리·사설·미할당 문자, 줄·문단 구분자
 
-def _split_fm(text: str):
-    """("---\n" 뒤 frontmatter 줄 목록, 닫는 `---` 줄부터의 나머지) 또는 frontmatter 가 없으면 None.
-    `---` 로 시작하는 첫 줄이 닫는 줄이며 정확히 `---` 여야 한다(파서마다 닫는 줄 규칙이 달라 숨은 키가 생기지 않게)."""
-    if not text.startswith("---\n"):
+def _fm_value(v):
+    """frontmatter 에 쓸 수 있으면 한 줄 JSON 문자열, 아니면 None(빈 값·앞뒤 공백·`---`·제어 문자)."""
+    if not isinstance(v, str) or not v or v != v.strip() or "---" in v:
         return None
-    lines = text[4:].split("\n")
-    for i, line in enumerate(lines):
-        if line.startswith("---"):
-            if line != "---":
-                raise ApplyError(f"frontmatter 닫는 줄은 정확히 '---' 여야 한다: {line!r}")
-            return lines[:i], "\n".join(lines[i:])
-    raise ApplyError("frontmatter 닫는 '---' 줄이 없다")
+    if any(unicodedata.category(ch) in _BAD_CATS for ch in v):
+        return None
+    return json.dumps(v, ensure_ascii=False)
 
-def _check_simple_fm(fm: list) -> None:
-    seen_key = False
-    for line in fm:
-        if any(ch in line for ch in _YAML_BREAKS) or line.startswith("\t"):
-            raise ApplyError("frontmatter 에 CR·특수 줄바꿈·탭 들여쓰기를 쓰지 않는다")
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if line.startswith(" ") or line == "-" or line.startswith("- "):   # 들여쓴 줄·맨 앞 칸 블록 항목은 앞 키의 값
-            if not seen_key:
-                raise ApplyError("frontmatter 는 맨 앞 칸에서 시작하는 키로 시작해야 한다")
-            continue
-        m = _TOP_KEY.match(line)
-        if not m:
-            raise ApplyError(f"frontmatter 는 단순한 `키: 값` 형식만 받는다: {line!r}")
-        if (m.group(2) or "")[:1] in ("&", "*", "!"):
-            raise ApplyError(f"frontmatter 에 YAML 앵커·별칭·태그를 쓰지 않는다: {line!r}")
-        seen_key = True
+def _alternatives(glob: str, limit: int = 64) -> list:
+    """중괄호·쉼표를 펼친 대안들(로더가 펼친다고 보고 보수적으로 나눈다). 단순화: 중첩은 안쪽부터, 대안 64개 넘으면 거부."""
+    todo, out = [glob], []
+    while todo:
+        g = todo.pop()
+        m = re.search(r"\{([^{}]*)\}", g)
+        if m:
+            todo += [g[:m.start()] + part + g[m.end():] for part in m.group(1).split(",")]
+        else:
+            out += g.split(",")
+        if len(todo) + len(out) > limit:
+            raise ApplyError(f"승인 paths 의 중괄호·쉼표 대안이 너무 많다: {glob!r}")
+    return out
 
-def _canon_paths(paths: list) -> list:
-    out = []
-    for g in paths:
-        if g not in out:
-            out.append(g)
-    return ["paths:"] + [f"  - {json.dumps(g, ensure_ascii=False)}" for g in out]
-
-def _normalize_rule(text: str, paths):
-    """paths 키와 거기 딸린 줄(다음 최상위 키 전까지: 항목·빈 줄·주석)을 모두 지우고, 첫 paths 자리에 승인 paths 정규형을
-    한 번만 넣는다. paths 가 None(global_rule)이면 지우기만 한다. (새 텍스트, 원래 paths 키 개수)를 돌려준다.
-    초안에 paths 키가 아예 없으면 넣지 않는다 → 비전역 rule 은 쓰기 뒤 검증이 거부하고 되돌린다."""
-    sp = _split_fm(text)
-    if sp is None:
-        return text, 0
-    fm, rest = sp
-    _check_simple_fm(fm)
-    out, n, i = [], 0, 0
-    while i < len(fm):
-        m = _TOP_KEY.match(fm[i])
-        if m and m.group(1) == "paths":
-            j = i + 1
-            while j < len(fm) and not _TOP_KEY.match(fm[j]):
-                j += 1
-            if n == 0 and paths:
-                out.extend(_canon_paths(paths))
-            n, i = n + 1, j
-            continue
-        out.append(fm[i])
-        i += 1
-    return "---\n" + "".join(line + "\n" for line in out) + rest, n
+def _universal(glob: str) -> bool:
+    """모든 파일과 맞는 glob(`**`, `*`, `**/*`, `./**` 등)이거나 그런 대안을 품었는가."""
+    for alt in _alternatives(glob):
+        segs = [s for s in re.sub(r"^(?:\./|/)+", "", alt.strip()).split("/") if s]
+        if segs and all(re.fullmatch(r"\*+", s) for s in segs):
+            return True
+    return False
 
 def _approved_paths(c: dict):
-    """비전역 rule 후보의 승인 paths(비지 않은 문자열 목록). global_rule 이면 None. 없거나 형식이 틀리면 거부."""
+    """비전역 rule 후보의 승인 paths(중복 제거). global_rule 이면 None. 없거나·쓸 수 없거나·전역과 같으면 거부."""
     if c.get("global_rule"):
         return None
     paths = (c.get("proposed_change") or {}).get("paths")
     if not (isinstance(paths, list) and paths and all(isinstance(g, str) and g.strip() for g in paths)):
         raise ApplyError("상시 로드(global_rule)가 아닌 rule 후보인데 승인된 proposed_change.paths 가 없다")
-    return list(paths)
+    bad = [g for g in paths if _fm_value(g) is None]
+    if bad:
+        raise ApplyError(f"승인 paths 에 frontmatter 로 쓸 수 없는 값(`---`·제어 문자·앞뒤 공백): {bad!r}")
+    if any(_universal(g) for g in paths):
+        raise ApplyError("승인 paths 가 모든 파일(`**` 등)을 덮어 상시 로드와 같다. global_rule 후보로 다시 낸다")
+    return list(dict.fromkeys(paths))
+
+def _split_draft(text: str):
+    """초안을 (frontmatter 줄 목록 또는 None, 본문)으로 나눈다. 첫 줄이 `---` 면 다음 `---` 줄까지가 frontmatter 다.
+    이 결과는 name·description 을 줍고 본문을 떼는 데만 쓴다(초안 frontmatter 자체는 버린다)."""
+    text = text[1:] if text.startswith("﻿") else text
+    lines = text.split("\n")
+    if lines[0].rstrip() != "---":
+        return None, text
+    for i in range(1, len(lines)):
+        if lines[i].rstrip() == "---":
+            return lines[1:i], "\n".join(lines[i + 1:])
+    raise ApplyError("초안 frontmatter 의 닫는 '---' 줄이 없다")
+
+def _make_fm(form: str, c: dict, fm_lines, paths, marked: bool) -> str:
+    """고정 키만으로 frontmatter 블록을 만든다. name·description 은 초안 값(단순 판독)이 쓸 수 있으면 그것, 아니면 후보 제목."""
+    got = front("---\n" + "\n".join(fm_lines or []) + "\n---")
+    title = c.get("title").strip() if isinstance(c.get("title"), str) else None
+    out = ["---"]
+    for k in (("name", "description") if form == "skill" else ("description",)):
+        v = _fm_value(got.get(k)) or _fm_value(title)
+        if v is None:
+            raise ApplyError(f"frontmatter {k} 로 쓸 값이 없다(초안 값도 후보 제목도 비었거나 `---`·제어 문자 포함)")
+        out.append(f"{k}: {v}")
+    if paths:
+        out += ["paths:"] + [f"  - {_fm_value(g)}" for g in paths]
+    if marked:
+        cid = _fm_value(c.get("id"))
+        if cid is None:
+            raise ApplyError("후보 id 를 frontmatter 에 쓸 수 없다")
+        out += [MARK, f"generated_at: {json.dumps(time.strftime('%Y-%m-%d', time.localtime(now())))}", f"candidate_id: {cid}"]
+    return "\n".join(out) + "\n---\n"
+
+def _render_md(form: str, c: dict, content: str, paths, marked: bool):
+    """(최종 내용, 우리가 만든 frontmatter 블록). 본문이 `---` 로 시작하면 빈 줄을 넣어 우리 블록과 붙지 않게 한다."""
+    fm_lines, body = _split_draft(content)
+    block = _make_fm(form, c, fm_lines, paths, marked)
+    return block + ("\n" + body if body.startswith("---") else body), block
 
 def _sha(p: pathlib.Path):
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
@@ -316,15 +327,14 @@ def _build(draft) -> dict:
         raise ApplyError(f"후보는 새 파일 만들기(create)인데 이미 파일이 있다: {rel}")
     if exists and not generated_before and MARK in content:
         raise ApplyError("사람이 쓴 파일에 harness-creator 표지를 넣지 않는다")
-    if not exists and MARK not in content:
+    if form == "hook" and not exists and MARK not in content:      # rule·skill 표지는 apply 가 frontmatter 에 넣는다
         raise ApplyError(f"새 파일에는 '{MARK}' 표지가 있어야 한다")
-    paths = None
-    if form == "rule":
-        paths = _approved_paths(c)
-        content = _normalize_rule(content, paths)[0]
+    paths, block = (_approved_paths(c) if form == "rule" else None), None
+    if form != "hook":
+        content, block = _render_md(form, c, content, paths, not exists or generated_before)
     mode = (real.stat().st_mode & 0o777) if exists else (0o700 if form == "hook" else 0o644)
     files = [{"rel": rel, "real": str(real), "exists": exists, "sha_before": _sha(real), "content": content,
-              "mode": mode, "generated": not exists or generated_before}]
+              "mode": mode, "generated": not exists or generated_before, "frontmatter": block}]
     diff = "".join(difflib.unified_diff(old.splitlines(True), content.splitlines(True),
                                         fromfile=f"a/{rel}", tofile=f"b/{rel}"))
     settings, warnings = None, []
@@ -360,32 +370,22 @@ def _run_hook(command: str, event: str):
             return None, ""
     return proc.returncode, out
 
-def _verify_rule_paths(text: str, p: dict) -> list:
-    """최종 파일의 paths 가 정규형 그대로인지 다시 확인한다(지우기·넣기 결과 재확인)."""
-    try:
-        norm, n = _normalize_rule(text, p.get("paths"))
-    except ApplyError as e:
-        return [f"rule frontmatter: {e}"]
-    if norm != text:
-        return ["rule paths 가 승인 범위의 정규형이 아니다"]
-    if p["global_rule"]:
-        return ["상시 로드 rule 에 paths 가 남아 있다"] if n else []
-    return [] if n == 1 else ["rule 에 paths: 조건 없음(상시 로드 허용 후보가 아님)"]
+def _verify_fm(text: str, block) -> list:
+    """최종 파일의 첫 frontmatter 가 우리가 만든 바이트 그대로이고, 로더 정규식으로 잘라도 같은 블록인지 본다."""
+    if not isinstance(block, str) or not text.startswith(block):
+        return ["frontmatter 가 apply 가 만든 블록과 다르다"]
+    m = LOADER_FM.match(text)
+    if not m or m.group(1) != block[len("---\n"):-len("---\n")]:
+        return ["로더 정규식으로 자른 frontmatter 가 apply 가 만든 블록과 다르다"]
+    return []
 
 def _verify_file(p: dict) -> list:
     """파일 검증. hook 은 settings 에 항목을 넣기 전에 실행해 본다(살아 있는 세션이 검증 전 훅을 집어 가지 않게)."""
     errs = []
     f = p["files"][0]
     text = pathlib.Path(f["real"]).read_text(encoding="utf-8", errors="replace")
-    fm = front(text)
-    if p["form"] == "rule":
-        if not text.startswith("---\n"):
-            errs.append("rule frontmatter 없음")
-        else:
-            errs += _verify_rule_paths(text, p)
-    elif p["form"] == "skill":
-        if not fm.get("name") or not fm.get("description"):
-            errs.append("skill frontmatter 에 name·description 필요")
+    if p["form"] in ("rule", "skill"):
+        errs += _verify_fm(text, f.get("frontmatter"))
     elif p["form"] == "hook":
         st = p["settings"]
         rc, out = _run_hook(st["command"], st["event"])
