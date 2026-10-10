@@ -282,5 +282,19 @@ def _dispatch(a) -> int:
     return 1
 
 def _apply_cmd(a) -> int:
-    print("apply 명령은 Task 10에서 구현된다", file=sys.stderr)
-    return 7
+    from hc import apply as A
+    try:
+        if a.cmd == "apply-plan":
+            with open(a.draft, encoding="utf-8") as fh:
+                draft = json.loads(fh.read())
+            p = A.plan(draft)
+            print(json.dumps({"candidate_id": p["candidate_id"], "warnings": p["warnings"], "diff": p["diff"]},
+                             ensure_ascii=False, indent=1))
+        elif a.cmd == "apply-write":
+            print(json.dumps(A.write(a.id), ensure_ascii=False, indent=1))
+        else:
+            print(json.dumps(A.undo(a.id, force=a.force), ensure_ascii=False, indent=1))
+    except (A.ApplyError, OSError, ValueError) as e:
+        print(f"적용 오류: {e}", file=sys.stderr)
+        return 7
+    return 0
