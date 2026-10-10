@@ -6,7 +6,7 @@ write 는 plan 을 처음부터 다시 계산해 그때 본 diff 와 같은지 �
 바꾸지 않고 링크 대상에 쓰되, 링크를 끝까지 푼 실제 위치가 홈(~/.claude 의 부모) 밖이거나 파일 링크가 다른 이름의
 파일을 가리키면 거부한다. write·undo 도 같은 검사를 다시 한다."""
 from __future__ import annotations
-import difflib, hashlib, json, os, pathlib, re, shlex, shutil, signal, subprocess, tempfile, time
+import difflib, hashlib, json, os, pathlib, posixpath, re, shlex, shutil, signal, subprocess, tempfile
 from .candidates import find_candidate, is_approved
 from .config import claude_home, data_dir
 from .effect import active_applied, record_applied, record_undo
@@ -58,6 +58,44 @@ def static_check(script: str) -> list:
     if any(_outside_home(m.group(1)) for m in _WRITE_TARGET.finditer(script)):
         found.add("write-outside-home")
     return [label for label in _LABELS if label in found]
+
+_FM_BLOCK = re.compile(r"^---\n(.*?)\n---", re.S)
+
+def _fm_paths(text: str):
+    """frontmatter 의 paths 목록. 인라인(`paths: a`, `paths: [a, b]`)과 블록(`- a`) 형식을 읽는다. 없거나 비면 None.
+    단순화: YAML 전체를 해석하지 않는다 → 흐름 목록 안 쉼표·주석은 못 읽는다(그러면 승인 범위와 달라 거부된다)."""
+    m = _FM_BLOCK.match(text or "")
+    lines = m.group(1).splitlines() if m else []
+    for i, line in enumerate(lines):
+        kv = re.match(r"^paths:\s*(.*?)\s*$", line)
+        if not kv:
+            continue
+        val = kv.group(1)
+        if val:
+            items = val[1:-1].split(",") if val.startswith("[") and val.endswith("]") else [val]
+        else:
+            items = []
+            for nxt in lines[i + 1:]:
+                it = re.match(r"^\s*-\s*(.*?)\s*$", nxt)
+                if not it:
+                    break
+                items.append(it.group(1))
+        out = [x.strip().strip("\"'") for x in items]
+        return [x for x in out if x] or None
+    return None
+
+def _check_rule_paths(c: dict, content: str, old: str) -> None:
+    """승인한 후보의 paths 와 초안 paths 가 집합으로 같아야 한다(수정이면 기존 파일 paths 를 그대로 두는 것도 허용).
+    paths 가 빠진 초안은 여기서 막지 않고 쓰기 뒤 검증이 거부한다. global_rule 후보는 기존 규칙(paths 선택)을 따른다."""
+    approved = (c.get("proposed_change") or {}).get("paths")
+    got = _fm_paths(content)
+    if c.get("global_rule") or not isinstance(approved, list) or got is None:
+        return
+    allowed = [set(str(x) for x in approved)]
+    if _fm_paths(old):
+        allowed.append(set(_fm_paths(old)))
+    if set(got) not in allowed:
+        raise ApplyError(f"초안 paths {got} 가 승인한 범위 {approved} 와 다르다")
 
 def _sha(p: pathlib.Path):
     return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
@@ -233,6 +271,8 @@ def _build(draft) -> dict:
         raise ApplyError("사람이 쓴 파일에 harness-creator 표지를 넣지 않는다")
     if not exists and MARK not in content:
         raise ApplyError(f"새 파일에는 '{MARK}' 표지가 있어야 한다")
+    if form == "rule":
+        _check_rule_paths(c, content, old)
     mode = (real.stat().st_mode & 0o777) if exists else (0o700 if form == "hook" else 0o644)
     files = [{"rel": rel, "real": str(real), "exists": exists, "sha_before": _sha(real), "content": content,
               "mode": mode, "generated": not exists or generated_before}]
@@ -284,7 +324,7 @@ def _verify_file(p: dict) -> list:
     if p["form"] == "rule":
         if not text.startswith("---\n"):
             errs.append("rule frontmatter 없음")
-        elif not p["global_rule"] and not fm.get("paths", "").strip():
+        elif not p["global_rule"] and not _fm_paths(text):
             errs.append("rule 에 paths: 조건 없음(상시 로드 허용 후보가 아님)")
     elif p["form"] == "skill":
         if not fm.get("name") or not fm.get("description"):
@@ -346,18 +386,26 @@ def _backup_dir(cid: str) -> pathlib.Path:
     d.mkdir(mode=0o700, exist_ok=True); os.chmod(d, 0o700)
     return d
 
-def _backup(real: pathlib.Path, bdir: pathlib.Path, tag: str):
+def _backup_name(rel: str) -> str:
+    """백업 이름은 정규화한 rel 의 해시에 묶는다. SKILL.md 처럼 같은 파일 이름이 여럿이어도 undo 가 rel 로 기대 이름을
+    계산해 정확히 비교하므로, 원장의 rel 만 바꿔 다른 파일에 이 백업을 덮어쓰게 할 수 없다."""
+    norm = posixpath.normpath(rel)
+    return f"{hashlib.sha256(norm.encode('utf-8')).hexdigest()[:16]}-{posixpath.basename(norm)}"
+
+def _backup(real: pathlib.Path, bdir: pathlib.Path, rel: str):
     if not real.exists():
         return None
-    b = bdir / f"{time.strftime('%Y%m%d%H%M%S')}-{os.getpid()}-{tag}-{real.name}"
+    b = bdir / _backup_name(rel)          # 같은 후보·같은 rel 은 활성 적용이 하나뿐이라 덮어써도 된다
+    if os.path.lexists(str(b)):
+        b.unlink()
     shutil.copyfile(real, b); os.chmod(b, 0o600)
     return str(b)
 
-def _start_record(real_s: str, bdir: pathlib.Path, tag: str, extra: dict) -> dict:
+def _start_record(real_s: str, bdir: pathlib.Path, rel: str, extra: dict) -> dict:
     """쓰기 직전 상태(새 파일인지·원래 권한)를 적고 백업한다. 되돌리기·undo 가 이 기록만 본다."""
     real = pathlib.Path(real_s)
     exists = real.exists()
-    return {**extra, "real": real_s, "created": not exists, "backup": _backup(real, bdir, tag),
+    return {**extra, "real": real_s, "created": not exists, "backup": _backup(real, bdir, rel),
             "mode_before": (real.stat().st_mode & 0o777) if exists else None, "created_dirs": []}
 
 def _git_root(path: pathlib.Path):
@@ -390,7 +438,7 @@ def write(candidate_id: str) -> dict:
     records, srec = [], None
     try:
         for i, f in enumerate(p["files"]):
-            rec = _start_record(f["real"], bdir, str(i), {"rel": f["rel"]})
+            rec = _start_record(f["real"], bdir, f["rel"], {"rel": f["rel"]})
             records.append(rec)                  # 폴더를 만들기 전에 넣어 둬야 실패 시 되돌릴 수 있다
             rec["created_dirs"] = _mkdirs(pathlib.Path(f["real"]).parent)
             _write_atomic(pathlib.Path(f["real"]), f["content"], f["mode"])
@@ -399,7 +447,7 @@ def write(candidate_id: str) -> dict:
         if not errs and st:
             sp = pathlib.Path(st["real"])
             cur = _load_settings(sp)
-            srec = _start_record(st["real"], bdir, "settings", {})
+            srec = _start_record(st["real"], bdir, "settings.json", {})
             srec["created_dirs"] = _mkdirs(sp.parent)
             _write_atomic(sp, _settings_text(_add_hook(cur, st)), srec["mode_before"] or 0o600)
             errs = _verify_settings(st)
@@ -430,8 +478,8 @@ def _check_undo_record(form, r, broot: str, force: bool) -> None:
     real = pathlib.Path(r["real"])
     if not r.get("created"):
         b = r.get("backup")
-        if not (isinstance(b, str) and _under(os.path.realpath(b), broot) and os.path.isfile(b)
-                and os.path.basename(b).endswith(f"-{real.name}")):
+        if not (isinstance(b, str) and os.path.realpath(b) == os.path.join(broot, _backup_name(r["rel"]))
+                and os.path.isfile(b)):
             raise ApplyError(f"백업이 없어 되돌릴 수 없다: {r.get('rel')}")
     if real.exists() and _sha(real) != r["sha_after"] and not force:
         raise ApplyError(f"적용 뒤 사용자가 고친 파일: {r['rel']}. 확인 후 --force 로 되돌린다")
