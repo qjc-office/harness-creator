@@ -94,6 +94,12 @@ fi
 if ! "${CLI[@]}" detect >> "$LOG" 2>&1; then
   _render_err detect; _fail "detect 실패"; exit 1
 fi
+# 신호가 0건이면 판정 모델을 부르지 않는다(보낼 것이 없다). 빈 후보로 검증·거르기·렌더를 그대로 탄다
+NSIG="$("${CLI[@]}" signal-count 2>> "$LOG")"
+case "$NSIG" in ''|*[!0-9]*) _render_err detect; _fail "signal-count 실패"; exit 1 ;; esac
+
+# 판정 단계(입력 생성 → 시간 제한 실행기 → claude -p → 응답 해석). rc 를 남긴다. 본문은 heredoc 때문에 들여쓰지 않는다
+_hc_judge() {
 INPUT="$("${CLI[@]}" propose-input 2>> "$LOG")"
 if [ ! -f "$INPUT" ]; then
   _render_err input; _fail "propose-input 실패"; exit 1
@@ -231,6 +237,15 @@ PY
   case "$prc" in 0) ;; 3) rc=66 ;; *) rc=65 ;; esac
 fi
 rm -f "${RAW:?}"
+}
+rc=0
+if [ "$NSIG" -eq 0 ]; then
+  _log "신호 0건: 판정 생략"
+  rm -f "${JUDGED:?}"
+  printf '{"candidates": []}\n' > "$JUDGED"
+else
+  _hc_judge
+fi
 
 if [ "$rc" -ne 0 ] || ! "${CLI[@]}" validate "$JUDGED" >> "$LOG" 2>&1; then
   [ -e "$JUDGED" ] && mv -f "$JUDGED" "${JUDGED%.json}.invalid.json"

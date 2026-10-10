@@ -9,12 +9,24 @@ def _runlog(tmp_path):
     p = tmp_path / "cache" / "logs" / "run.log"
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
-def _run(tmp_path, stub_body, extra_env=None, pre=None):
+def _seed_signal(cache):
+    """신호 1개(실패 루프: 2세션 × 같은 오류 3회)가 나오는 이벤트. 신호가 0건이면 러너가 판정을 생략하므로
+    판정 단계를 보는 테스트는 이것을 깔고 돈다."""
+    d = cache / "events"; d.mkdir(parents=True, exist_ok=True)
+    ts = lambda k: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600 + k))
+    rec = ('{{"surface": "claude", "session_id": "{s}", "ts": "{t}", "cwd": "/w", "kind": "tool_error", '
+           '"text": "boom", "tool": "Bash", "error_sig": "abc123abc123"}}\n')
+    # 원문이 같은 줄은 탐지가 한 번만 세므로 시각을 1초씩 다르게 둔다
+    (d / "seed.jsonl").write_text("".join(rec.format(s=s, t=ts(k)) for s in ("sa", "sb") for k in range(3)))
+
+def _run(tmp_path, stub_body, extra_env=None, pre=None, seed=True):
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     cache = tmp_path / "cache"
     # 정상 수집 통계를 기본으로 둔다(HC_SKIP_COLLECT라 collect가 쓰지 않는다). pre가 덮어쓰거나 지울 수 있다.
     cache.mkdir(parents=True, exist_ok=True)
+    if seed:
+        _seed_signal(cache)
     (cache / "collect-stats.json").write_text(
         '{"files": 0, "events": {"claude": 0, "codex": 0}, "records": 0, "unknown": 0, "deferred": 0, "errors": 0, "malformed": 0}')
     (cache / "config.json").write_text('{"lang": "ko", "consent": {"accepted_at": "x"}}')
@@ -147,7 +159,7 @@ def test_propose_input_redactor_failure_renders_failure(tmp_path):
 def test_event_cap_exceeded_renders_failure(tmp_path):
     # 이벤트 상한을 넘으면 탐지 실패로 보고하고 성공 하트비트를 남기지 않는다
     def two_events(cache):
-        d = cache / "events"; d.mkdir(parents=True)
+        d = cache / "events"; d.mkdir(parents=True, exist_ok=True)
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         rec = '{{"surface": "claude", "session_id": "{s}", "ts": "{t}", "cwd": "/w", "kind": "user_msg", "text": "{s}", "tool": "", "error_sig": ""}}\n'
         (d / "today.jsonl").write_text(rec.format(s="a", t=now) + rec.format(s="b", t=now))
@@ -295,6 +307,7 @@ def _concurrent(tmp_path, pre=None):
     cache = tmp_path / "cache"; cache.mkdir()
     (cache / "collect-stats.json").write_text('{"files": 0, "events": {}, "errors": 0, "deferred": 0, "malformed": 0}')
     (cache / "config.json").write_text('{"lang": "ko", "consent": {"accepted_at": "x"}}')
+    _seed_signal(cache)
     if pre:
         pre(cache)
     stub = tmp_path / "stub.sh"
@@ -725,3 +738,22 @@ def test_pidless_old_lock_alerts_with_gnu_stat(tmp_path):
     r, *_ = _run(tmp_path, OK_STUB, pre=_aged(120), extra_env={"PATH": _gnu_stat_path(tmp_path)})
     assert r.returncode == 75
     assert "잠금에 pid 없음" in _runlog(tmp_path)
+
+
+# --- 신호 0건이면 판정 모델을 부르지 않고 빈 후보로 렌더한다 ---
+def test_zero_signals_skips_judge(tmp_path):
+    marker = tmp_path / "stub-called"
+    r, reports, today, report = _run(tmp_path, f"touch {marker}; {OK_STUB}", seed=False)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    assert not marker.exists()
+    assert _first_line(report) == "# harness-creator 리포트: 후보 없음"
+    assert "판정 생략" in _runlog(tmp_path) and "OK report=" in _runlog(tmp_path)
+    assert not list(reports.glob("*.input.json"))
+
+def test_zero_signals_without_claude_still_ok(tmp_path):
+    # 판정을 하지 않으므로 claude 가 없어도 실패가 아니다
+    def pre(cache):
+        (cache / "config.json").write_text(json.dumps({"lang": "ko", "consent": {"accepted_at": "x"},
+                                                       "judge": {"claude_bin": str(tmp_path / "no-such-claude")}}))
+    r, reports, today, report = _run(tmp_path, None, pre=pre, seed=False)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)

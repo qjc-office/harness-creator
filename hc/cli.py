@@ -113,7 +113,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("where"); p.add_argument("--path", action="store_true")
     for name in ("status", "lang", "consent-text", "consent-check", "wrap-argv", "judge-argv", "propose-input",
-                 "stats-check", "pending", "applied", "forget"):
+                 "signal-count", "stats-check", "pending", "applied", "forget"):
         sub.add_parser(name)
     p = sub.add_parser("consent"); p.add_argument("--accept", action="store_true", required=True)
     p.add_argument("--codex", choices=["yes", "no"], required=True)
@@ -182,6 +182,9 @@ def _dispatch(a) -> int:
         except RedactError as e:
             print(f"가림 실패, 신호 파일을 쓰지 않음: {e}", file=sys.stderr); return 3
         return 0
+    if a.cmd == "signal-count":
+        sigs = _signals_doc().get("signals")
+        print(len(sigs) if isinstance(sigs, list) else 0); return 0
     if a.cmd == "propose-input":
         # 신호 samples는 detect가 현재 설정의 가림기로 다시 가려 신호 파일에 쓴 값이다. 그대로 옮기고 여기서 바꾸지 않는다
         # (validate가 같은 신호 파일 samples와 quotes를 정확 일치로 대조한다)
