@@ -1,6 +1,6 @@
 {
   "name": "harness-creator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Analyze your Claude Code and Codex sessions, propose up to 3 evidence-backed rules, hooks or skills a week, and apply only what you approve (diff, backup, undo).",
   "author": {"name": "QJC (Quantum Jump Club)", "url": "https://github.com/qjc-office"},
   "homepage": "https://github.com/qjc-office/harness-creator",
