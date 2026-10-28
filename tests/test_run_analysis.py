@@ -1,6 +1,6 @@
 """run-analysis.sh 를 스텁으로 돌린다. 실제 claude·수집은 부르지 않는다(수집 테스트 2개는 빈 임시 HOME을 읽는다).
 스텁 계약: stdin=프롬프트(입력 JSON 포함), stdout=모델 응답."""
-import json, os, pathlib, stat, subprocess, time
+import json, os, pathlib, shlex, stat, subprocess, time
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 RUNNER = SCRIPTS / "run-analysis.sh"
@@ -25,6 +25,7 @@ def _run(tmp_path, stub_body, extra_env=None, pre=None, seed=True):
     cache = tmp_path / "cache"
     # 정상 수집 통계를 기본으로 둔다(HC_SKIP_COLLECT라 collect가 쓰지 않는다). pre가 덮어쓰거나 지울 수 있다.
     cache.mkdir(parents=True, exist_ok=True)
+    judge_tmp = cache / "tmp"; judge_tmp.mkdir()
     if seed:
         _seed_signal(cache)
     (cache / "collect-stats.json").write_text(
@@ -37,6 +38,7 @@ def _run(tmp_path, stub_body, extra_env=None, pre=None, seed=True):
     stub.chmod(0o755)
     env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
            "HC_DATA_DIR": str(cache), "HC_CLAUDE_STUB": str(stub), "HC_SKIP_COLLECT": "1"}
+    env["TMPDIR"] = str(judge_tmp)
     if stub_body is None:
         del env["HC_CLAUDE_STUB"]
     env.update(extra_env or {})
@@ -70,6 +72,58 @@ def test_stub_failure_reports_failure(tmp_path):
     assert r.returncode == 2
     assert "실패" in _first_line(report)
     assert not (reports / f"{today}.candidates.json").exists()
+
+def _counted_stub(first, second):
+    return ('count="$HC_DATA_DIR/judge-count"; n=0; [ -f "$count" ] && n=$(cat "$count"); n=$((n + 1)); printf "%s" "$n" > "$count"; cat > /dev/null; '
+            f"if [ \"$n\" -eq 1 ]; then printf %s {shlex.quote(first)}; else printf %s {shlex.quote(second)}; fi")
+
+def _judge_calls(tmp_path):
+    return int((tmp_path / "cache" / "judge-count").read_text(encoding="utf-8"))
+
+def test_parse_failure_retries_once_and_success_uses_second_response(tmp_path):
+    body = _counted_stub("not json", '{"candidates": []}')
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    assert "후보 없음" in _first_line(report)
+    assert _judge_calls(tmp_path) == 2
+    assert (reports / f"{today}.judged.attempt1.invalid.json").read_text(encoding="utf-8") == "not json"
+    assert not (reports / f"{today}.judged.attempt2.invalid.json").exists()
+    assert "judge retry attempt=2" in _runlog(tmp_path) and "rc=65" in _runlog(tmp_path)
+
+def test_two_parse_failures_preserve_both_attempts_and_fail(tmp_path):
+    body = _counted_stub("broken one", "broken two")
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2
+    assert "실패" in _first_line(report)
+    assert _judge_calls(tmp_path) == 2
+    assert (reports / f"{today}.judged.attempt1.invalid.json").read_text(encoding="utf-8") == "broken one"
+    assert (reports / f"{today}.judged.attempt2.invalid.json").read_text(encoding="utf-8") == "broken two"
+    assert (reports / f"{today}.judged.invalid.json").read_text(encoding="utf-8") == "broken two"
+
+def test_validate_failure_retries_once(tmp_path):
+    body = _counted_stub('{"candidates": [{"id": 1}]}', '{"candidates": []}')
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    assert "후보 없음" in _first_line(report)
+    assert _judge_calls(tmp_path) == 2
+    assert (reports / f"{today}.judged.attempt1.invalid.json").exists()
+    assert "validate rejected" in _runlog(tmp_path)
+
+def test_isolation_violation_does_not_retry(tmp_path):
+    init = {"type": "system", "subtype": "init", "tools": ["Bash"], "mcp_servers": []}
+    response = json.dumps([init, {"type": "result", "is_error": False, "result": '{"candidates": []}'}])
+    body = _counted_stub(response, response)
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2
+    assert "isolation" in report.read_text(encoding="utf-8")
+    assert _judge_calls(tmp_path) == 1
+
+def test_judge_execution_failure_does_not_retry(tmp_path):
+    body = ('count="{d}HC_DATA_DIR/judge-count"; n=0; [ -f "{d}count" ] && n={d}(cat "{d}count"); n={d}((n + 1)); printf "%s" "{d}n" > "{d}count"; cat > /dev/null; exit 1').format(d=chr(36))
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2
+    assert "실패" in _first_line(report)
+    assert _judge_calls(tmp_path) == 1
 
 def test_empty_candidates_report_says_none(tmp_path):
     r, reports, today, report = _run(tmp_path, "cat > /dev/null; printf '{\"candidates\": []}'")
@@ -305,6 +359,7 @@ def _concurrent(tmp_path, pre=None):
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     cache = tmp_path / "cache"; cache.mkdir()
+    judge_tmp = cache / "tmp"; judge_tmp.mkdir()
     (cache / "collect-stats.json").write_text('{"files": 0, "events": {}, "errors": 0, "deferred": 0, "malformed": 0}')
     (cache / "config.json").write_text('{"lang": "ko", "consent": {"accepted_at": "x"}}')
     _seed_signal(cache)
@@ -315,6 +370,7 @@ def _concurrent(tmp_path, pre=None):
     stub.write_text("#!/bin/bash\nsleep 2; " + OK_STUB + "\n"); stub.chmod(0o755)
     env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HC_DATA_DIR": str(cache),
            "HC_CLAUDE_STUB": str(stub), "HC_SKIP_COLLECT": "1"}
+    env["TMPDIR"] = str(judge_tmp)
     procs = [subprocess.Popen(["/bin/bash", str(RUNNER)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
              for _ in range(2)]
     rcs = sorted(p.wait(timeout=120) for p in procs)
