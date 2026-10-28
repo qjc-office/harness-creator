@@ -98,8 +98,8 @@ fi
 NSIG="$("${CLI[@]}" signal-count 2>> "$LOG")"
 case "$NSIG" in ''|*[!0-9]*) _render_err detect; _fail "signal-count failed"; exit 1 ;; esac
 
-# 판정 단계(입력 생성 → 시간 제한 실행기 → claude -p → 응답 해석). rc 를 남긴다. 본문은 heredoc 때문에 들여쓰지 않는다
-_hc_judge() {
+# 판정 준비(입력 생성·설정 확인·시간 제한 실행기). 실패하면 재시도하지 않는다.
+_hc_judge_prepare() {
 INPUT="$("${CLI[@]}" propose-input 2>> "$LOG")"
 if [ ! -f "$INPUT" ]; then
   _render_err input; _fail "propose-input failed"; exit 1
@@ -136,28 +136,17 @@ if [ "${#TO[@]}" -eq 0 ]; then
 fi
 _log "time limit runner: $(basename "${TO[0]}") ${PROPOSE_TIMEOUT}s"
 
-rm -f "${JUDGED:?}" "${RAW:?}"
-{ sed -e "s#{TODAY}#$TODAY#g" -e "s#{LANG}#$LANG_OUT#g" "$HERE/propose-prompt.md"; cat "$INPUT"; } > "$PF"
-# 판정 모델에는 도구를 하나도 주지 않는다. 입력이 세션 기록이라 프롬프트 주입이 가능하므로 파일 쓰기는 셸이 한다.
-# --restricted 로 사용자 settings 를 무시하고, --safe-mode 로 CLAUDE.md·스킬·설치 플러그인·훅을 끄고,
-# --tools "" 로 내장 도구를 끄고, --disallowedTools 를 2차 방어선으로 둔다. cwd 는 빈 임시 폴더다.
-# 가변 인자 플래그(--tools·--disallowedTools)는 맨 뒤에 둔다. 플래그를 빼고 돌리는 대체 경로는 두지 않는다.
 ISO=(-p --output-format json --model "$MODEL" \
   --restricted --safe-mode --permission-mode dontAsk \
   --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
   --tools "" \
   --disallowedTools "Bash,Read,Write,Edit,MultiEdit,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Agent,Task,Skill,TodoWrite,Monitor,SendMessage,Artifact,ArtifactData,ArtifactComments,ToolSearch,EnterWorktree,ExitWorktree,CronCreate,RemoteTrigger,TaskStop,PushNotification,ScheduleWakeup")
-rc=0
 if ! JCWD="$(mktemp -d "${TMPDIR:-/tmp}/hc-judge.XXXXXX")" || [ -z "$JCWD" ]; then
   JCWD=""; _render_err judge "rc=1"; _fail "could not create a temporary folder for the judge"; exit 2
 fi
 case "$CLAUDE" in ''|/*) ;; *) CLAUDE="$PWD/$CLAUDE" ;; esac
 case "$STUB" in ''|/*) ;; *) STUB="$PWD/$STUB" ;; esac
-if [ -n "$STUB" ]; then
-  # 테스트 전용 경로. 실제 claude와 같은 ISO 플래그를 넘겨 격리 인자가 빠지지 않았는지 테스트가 본다
-  ( cd "$JCWD" && exec "${TO[@]}" "$STUB" "${ISO[@]}" ) < "$PF" > "$RAW" 2>> "$LOG"
-  rc=$?
-else
+if [ -z "$STUB" ]; then
   if [ -z "$CLAUDE" ] || [ ! -x "$CLAUDE" ]; then
     _render_err no_claude "${CLAUDE:-PATH}"; _fail "claude not found: ${CLAUDE:-PATH}"; exit 1
   fi
@@ -170,6 +159,27 @@ else
     *--safe-mode*) ;;
     *) _render_err cli_upgrade; _fail "claude --help has no --safe-mode"; exit 1 ;;
   esac
+fi
+rm -f "${JUDGED:?}" "${RAW:?}"
+}
+
+# 판정 1회(입력 준비와 동일한 격리 플래그·시간 제한 실행기를 사용한다). 본문은 heredoc 때문에 들여쓰지 않는다
+_hc_judge() {
+attempt="$1"
+ATTEMPT_JUDGED="$DATA/reports/$TODAY.judged.attempt${attempt}.json"
+rm -f "${ATTEMPT_JUDGED:?}" "${RAW:?}"
+{ sed -e "s#{TODAY}#$TODAY#g" -e "s#{LANG}#$LANG_OUT#g" "$HERE/propose-prompt.md"; cat "$INPUT"; } > "$PF"
+# 판정 모델에는 도구를 하나도 주지 않는다. 입력이 세션 기록이라 프롬프트 주입이 가능하므로 파일 쓰기는 셸이 한다.
+# --restricted 로 사용자 settings 를 무시하고, --safe-mode 로 CLAUDE.md·스킬·설치 플러그인·훅을 끄고,
+# --tools "" 로 내장 도구를 끄고, --disallowedTools 를 2차 방어선으로 둔다. cwd 는 빈 임시 폴더다.
+# 가변 인자 플래그(--tools·--disallowedTools)는 맨 뒤에 둔다. 플래그를 빼고 돌리는 대체 경로는 두지 않는다.
+rc=0
+JUDGE_RETRYABLE=0
+if [ -n "$STUB" ]; then
+  # 테스트 전용 경로. 실제 claude와 같은 ISO 플래그를 넘겨 격리 인자가 빠지지 않았는지 테스트가 본다
+  ( cd "$JCWD" && exec "${TO[@]}" "$STUB" "${ISO[@]}" ) < "$PF" > "$RAW" 2>> "$LOG"
+  rc=$?
+else
   ( cd "$JCWD" && exec "${TO[@]}" "$CLAUDE" "${ISO[@]}" ) < "$PF" > "$RAW" 2>> "$LOG"
   rc=$?
 fi
@@ -177,7 +187,7 @@ rm -f "${PF:?}"
 [ "$rc" -ne 0 ] && _log "judge step rc=$rc"
 # 응답이 --output-format json 봉투면 result 문자열을 꺼낸다. 그 안의 첫 '{'~마지막 '}'를 JSON으로 읽어 JUDGED(0600)에 쓴다.
 if [ "$rc" -eq 0 ]; then
-  python3 - "$RAW" "$JUDGED" <<'PY' >> "$LOG" 2>&1
+  python3 - "$RAW" "$ATTEMPT_JUDGED" <<'PY' >> "$LOG" 2>&1
 import json, os, sys
 raw_p, out_p = sys.argv[1], sys.argv[2]
 try:
@@ -234,22 +244,65 @@ _write(json.dumps(obj, ensure_ascii=False, indent=1))
 PY
   prc=$?
   # 3 = 격리 위반(rc 66, 리포트에 isolation 표기), 그 밖의 실패 = 해석 실패(rc 65)
-  case "$prc" in 0) ;; 3) rc=66 ;; *) rc=65 ;; esac
+  case "$prc" in
+    0) ;;
+    3) rc=66 ;;
+    *) rc=65; JUDGE_RETRYABLE=1 ;;
+  esac
 fi
 rm -f "${RAW:?}"
 }
+
+_hc_preserve_invalid() {
+  attempt="$1"
+  if [ -e "$ATTEMPT_JUDGED" ]; then
+    INVALID="$DATA/reports/$TODAY.judged.attempt${attempt}.invalid.json"
+    mv -f "$ATTEMPT_JUDGED" "$INVALID"
+    LAST_INVALID="$INVALID"
+  fi
+}
+
+# 판정 1회 + 형식 검사. 성공하면 JUDGED 로 옮긴다. 응답 해석 실패·형식 검사 거부만 JUDGE_RETRYABLE=1 이고,
+# 실행 실패·시간 초과·격리 위반은 다시 돌리지 않는다. 깨진 응답(rc 65·66)은 시도 번호를 붙여 보존한다.
+_hc_attempt() {
+  _hc_judge "$1"
+  FAIL_WHY="response parse rc=$rc"
+  if [ "$rc" -eq 0 ]; then
+    if "${CLI[@]}" validate "$ATTEMPT_JUDGED" >> "$LOG" 2>&1; then
+      mv -f "$ATTEMPT_JUDGED" "$JUDGED"
+      JUDGE_OK=1
+      return
+    fi
+    FAIL_WHY="validate rejected"; JUDGE_RETRYABLE=1
+    _hc_preserve_invalid "$1"
+    return
+  fi
+  case "$rc" in 65|66) _hc_preserve_invalid "$1" ;; esac
+}
 rc=0
+JUDGE_OK=0
 if [ "$NSIG" -eq 0 ]; then
   _log "0 signals: judge skipped"
   rm -f "${JUDGED:?}"
   printf '{"candidates": []}\n' > "$JUDGED"
+  JUDGE_OK=1
 else
-  _hc_judge
+  _hc_judge_prepare
+  JUDGE_OK=0
+  LAST_INVALID=""; FAIL_WHY=""
+  _hc_attempt 1
+  if [ "$JUDGE_OK" -ne 1 ] && [ "$JUDGE_RETRYABLE" -eq 1 ]; then
+    _log "judge retry attempt=2 after attempt=1 failed: $FAIL_WHY"
+    _hc_attempt 2
+  fi
 fi
 
-if [ "$rc" -ne 0 ] || ! "${CLI[@]}" validate "$JUDGED" >> "$LOG" 2>&1; then
-  [ -e "$JUDGED" ] && mv -f "$JUDGED" "${JUDGED%.json}.invalid.json"
+if [ "$JUDGE_OK" -ne 1 ] && [ "$NSIG" -ne 0 ]; then
+  if [ -n "$LAST_INVALID" ] && [ -e "$LAST_INVALID" ]; then
+    cp -f "$LAST_INVALID" "${JUDGED%.json}.invalid.json"
+  fi
   det="rc=$rc"; [ "$rc" -eq 66 ] && det="rc=$rc isolation"
+  [ "$FAIL_WHY" = "validate rejected" ] && det="validate rejected"
   _render_err judge "$det"; _fail "propose/validate failed $det"; exit 2
 fi
 if ! CANDS="$("${CLI[@]}" gate "$JUDGED" 2>> "$LOG")" || [ ! -f "$CANDS" ]; then

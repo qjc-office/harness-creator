@@ -1,6 +1,6 @@
 """run-analysis.sh 를 스텁으로 돌린다. 실제 claude·수집은 부르지 않는다(수집 테스트 2개는 빈 임시 HOME을 읽는다).
 스텁 계약: stdin=프롬프트(입력 JSON 포함), stdout=모델 응답."""
-import json, os, pathlib, stat, subprocess, time
+import json, os, pathlib, shlex, stat, subprocess, time
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1] / "scripts"
 RUNNER = SCRIPTS / "run-analysis.sh"
@@ -70,6 +70,67 @@ def test_stub_failure_reports_failure(tmp_path):
     assert r.returncode == 2
     assert "실패" in _first_line(report)
     assert not (reports / f"{today}.candidates.json").exists()
+
+def _counted_stub(first, second):
+    return ('count="$HC_DATA_DIR/judge-count"; n=0; [ -f "$count" ] && n=$(cat "$count"); n=$((n + 1)); printf "%s" "$n" > "$count"; cat > /dev/null; '
+            f"if [ \"$n\" -eq 1 ]; then printf %s {shlex.quote(first)}; else printf %s {shlex.quote(second)}; fi")
+
+def _judge_calls(tmp_path):
+    return int((tmp_path / "cache" / "judge-count").read_text(encoding="utf-8"))
+
+def test_parse_failure_retries_once_and_success_uses_second_response(tmp_path):
+    body = _counted_stub("not json", '{"candidates": []}')
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    assert "후보 없음" in _first_line(report)
+    assert _judge_calls(tmp_path) == 2
+    assert (reports / f"{today}.judged.attempt1.invalid.json").read_text(encoding="utf-8") == "not json"
+    assert not (reports / f"{today}.judged.attempt2.invalid.json").exists()
+    assert "judge retry attempt=2" in _runlog(tmp_path) and "rc=65" in _runlog(tmp_path)
+
+def test_two_parse_failures_preserve_both_attempts_and_fail(tmp_path):
+    body = _counted_stub("broken one", "broken two")
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2
+    assert "실패" in _first_line(report)
+    assert _judge_calls(tmp_path) == 2
+    assert (reports / f"{today}.judged.attempt1.invalid.json").read_text(encoding="utf-8") == "broken one"
+    assert (reports / f"{today}.judged.attempt2.invalid.json").read_text(encoding="utf-8") == "broken two"
+    assert (reports / f"{today}.judged.invalid.json").read_text(encoding="utf-8") == "broken two"
+
+def test_validate_failure_retries_once(tmp_path):
+    body = _counted_stub('{"candidates": [{"id": 1}]}', '{"candidates": []}')
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 0, r.stderr + _runlog(tmp_path)
+    assert "후보 없음" in _first_line(report)
+    assert _judge_calls(tmp_path) == 2
+    assert (reports / f"{today}.judged.attempt1.invalid.json").exists()
+    assert "validate rejected" in _runlog(tmp_path)
+
+def test_two_validate_failures_fail_with_validate_reason(tmp_path):
+    bad = '{"candidates": [{"id": 1}]}'
+    r, reports, today, report = _run(tmp_path, _counted_stub(bad, bad))
+    assert r.returncode == 2
+    assert _judge_calls(tmp_path) == 2
+    assert (reports / f"{today}.judged.attempt2.invalid.json").exists()
+    assert "propose/validate failed validate rejected" in _runlog(tmp_path)
+    assert "rc=0" not in _runlog(tmp_path)
+
+def test_isolation_violation_does_not_retry(tmp_path):
+    init = {"type": "system", "subtype": "init", "tools": ["Bash"], "mcp_servers": []}
+    response = json.dumps([init, {"type": "result", "is_error": False, "result": '{"candidates": []}'}])
+    body = _counted_stub(response, response)
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2
+    assert "isolation" in report.read_text(encoding="utf-8")
+    assert _judge_calls(tmp_path) == 1
+
+def test_judge_execution_failure_does_not_retry(tmp_path):
+    body = ('count="{d}HC_DATA_DIR/judge-count"; n=0; [ -f "{d}count" ] && n={d}(cat "{d}count"); n={d}((n + 1)); printf "%s" "{d}n" > "{d}count"; cat > /dev/null; exit 1').format(d=chr(36))
+    r, reports, today, report = _run(tmp_path, body)
+    assert r.returncode == 2
+    assert "실패" in _first_line(report)
+    assert _judge_calls(tmp_path) == 1
 
 def test_empty_candidates_report_says_none(tmp_path):
     r, reports, today, report = _run(tmp_path, "cat > /dev/null; printf '{\"candidates\": []}'")

@@ -84,6 +84,8 @@ def collect(days: int, now: float | None = None, sources: dict | None = None, re
     # 신호 파일과 판정 입력도 세션 발췌를 담으므로 이벤트와 같은 보존 기간으로 지운다(리포트는 남긴다)
     _prune_events(root / "signals", cfg["events_retention_days"], now, "*.json")
     _prune_events(root / "reports", cfg["events_retention_days"], now, "*.input.json")
+    # 해석·형식 검사에 실패한 판정 원본 응답도 세션 발췌를 담을 수 있어 같은 기간으로 지운다
+    _prune_events(root / "reports", cfg["events_retention_days"], now, "*.invalid.json")
     cur_path = root / "cursor.json"
     cursor = json.loads(cur_path.read_text()) if cur_path.exists() else {}
     skipped = {"outside": 0}
