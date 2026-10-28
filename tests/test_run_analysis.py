@@ -25,7 +25,6 @@ def _run(tmp_path, stub_body, extra_env=None, pre=None, seed=True):
     cache = tmp_path / "cache"
     # 정상 수집 통계를 기본으로 둔다(HC_SKIP_COLLECT라 collect가 쓰지 않는다). pre가 덮어쓰거나 지울 수 있다.
     cache.mkdir(parents=True, exist_ok=True)
-    judge_tmp = cache / "tmp"; judge_tmp.mkdir()
     if seed:
         _seed_signal(cache)
     (cache / "collect-stats.json").write_text(
@@ -38,7 +37,6 @@ def _run(tmp_path, stub_body, extra_env=None, pre=None, seed=True):
     stub.chmod(0o755)
     env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
            "HC_DATA_DIR": str(cache), "HC_CLAUDE_STUB": str(stub), "HC_SKIP_COLLECT": "1"}
-    env["TMPDIR"] = str(judge_tmp)
     if stub_body is None:
         del env["HC_CLAUDE_STUB"]
     env.update(extra_env or {})
@@ -359,7 +357,6 @@ def _concurrent(tmp_path, pre=None):
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     cache = tmp_path / "cache"; cache.mkdir()
-    judge_tmp = cache / "tmp"; judge_tmp.mkdir()
     (cache / "collect-stats.json").write_text('{"files": 0, "events": {}, "errors": 0, "deferred": 0, "malformed": 0}')
     (cache / "config.json").write_text('{"lang": "ko", "consent": {"accepted_at": "x"}}')
     _seed_signal(cache)
@@ -370,7 +367,6 @@ def _concurrent(tmp_path, pre=None):
     stub.write_text("#!/bin/bash\nsleep 2; " + OK_STUB + "\n"); stub.chmod(0o755)
     env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HC_DATA_DIR": str(cache),
            "HC_CLAUDE_STUB": str(stub), "HC_SKIP_COLLECT": "1"}
-    env["TMPDIR"] = str(judge_tmp)
     procs = [subprocess.Popen(["/bin/bash", str(RUNNER)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
              for _ in range(2)]
     rcs = sorted(p.wait(timeout=120) for p in procs)
