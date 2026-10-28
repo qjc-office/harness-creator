@@ -92,7 +92,7 @@ def test_versions_agree():
     import hc
     pj = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
     mj = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
-    assert pj["version"] == hc.__version__ == mj["plugins"][0]["version"] == "0.1.0"
+    assert pj["version"] == hc.__version__ == mj["plugins"][0]["version"] == "0.1.1"
     assert pj["name"] == mj["plugins"][0]["name"] == "harness-creator" and pj["license"] == "MIT"
 
 def test_fallback_data_dir_gets_gitignore(tmp_path, monkeypatch):
