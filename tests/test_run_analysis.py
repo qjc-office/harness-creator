@@ -113,7 +113,8 @@ def test_two_validate_failures_fail_with_validate_reason(tmp_path):
     assert r.returncode == 2
     assert _judge_calls(tmp_path) == 2
     assert (reports / f"{today}.judged.attempt2.invalid.json").exists()
-    assert "propose/validate failed rc=0 validate rejected" in _runlog(tmp_path)
+    assert "propose/validate failed validate rejected" in _runlog(tmp_path)
+    assert "rc=0" not in _runlog(tmp_path)
 
 def test_isolation_violation_does_not_retry(tmp_path):
     init = {"type": "system", "subtype": "init", "tools": ["Bash"], "mcp_servers": []}

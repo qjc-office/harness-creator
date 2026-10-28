@@ -302,7 +302,7 @@ if [ "$JUDGE_OK" -ne 1 ] && [ "$NSIG" -ne 0 ]; then
     cp -f "$LAST_INVALID" "${JUDGED%.json}.invalid.json"
   fi
   det="rc=$rc"; [ "$rc" -eq 66 ] && det="rc=$rc isolation"
-  [ "$FAIL_WHY" = "validate rejected" ] && det="rc=$rc validate rejected"
+  [ "$FAIL_WHY" = "validate rejected" ] && det="validate rejected"
   _render_err judge "$det"; _fail "propose/validate failed $det"; exit 2
 fi
 if ! CANDS="$("${CLI[@]}" gate "$JUDGED" 2>> "$LOG")" || [ ! -f "$CANDS" ]; then
