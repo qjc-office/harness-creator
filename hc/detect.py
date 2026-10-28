@@ -81,13 +81,13 @@ def load_events(days: int, now: float | None = None, max_events: int | None = No
     LAST_LOAD_SKIPPED = skipped
     return out
 
-def _local_day(ts: str) -> str:
-    dt = _parse_ts(ts)
-    return dt.astimezone().date().isoformat() if dt else str(ts)[:10]
+def _days(evs) -> list:
+    """관찰된 서로 다른 날(로컬 시간대, 오름차순). 시각을 못 읽은 이벤트는 날짜를 알 수 없으므로 넣지 않는다.
+    min_days 판정과 Signal.days(전역 rule 게이트 G4 근거)가 같은 집합을 쓴다."""
+    return sorted({dt.astimezone().date().isoformat() for dt in (_parse_ts(e.ts) for e in evs) if dt})
 
 def _day_count(evs) -> int:
-    """기준(min_days) 판정용 서로 다른 날 수. 시각을 못 읽은 이벤트는 날짜를 알 수 없으므로 세지 않는다."""
-    return len({dt.astimezone().date() for dt in (_parse_ts(e.ts) for e in evs) if dt})
+    return len(_days(evs))
 
 _PUNCT = re.compile(r"[.,!?~…·'\"()\[\]]")
 
@@ -110,7 +110,7 @@ def _finish(sig_type, key, group, cfg, context=None) -> Signal:
                   sessions=sorted({e.session_id for e in group}), count=len(group),
                   first_seen=group[0].ts, last_seen=group[-1].ts, samples=samples,
                   surfaces=sorted({e.surface for e in group}), context=(context or [])[:3],
-                  days=sorted({_local_day(e.ts) for e in group}))
+                  days=_days(group))
 
 def detect_corrections(events, cfg) -> list:
     th = cfg["thresholds"]["correction"]

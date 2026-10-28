@@ -232,3 +232,19 @@ def test_correction_unparseable_ts_not_counted_as_days():
     evs = [ev("a", "2026-10-01 garbage", "user_msg", "그렇게 하지 마"),
            ev("b", "2026-10-02 garbage", "user_msg", "그렇게 하지 마")]
     assert detect_corrections(evs, CFG) == []
+
+def test_unparseable_ts_not_in_signal_days_nor_global_rule_gate():
+    # 정상 2일 + 시각 불명 1건: 신호는 나오지만 days는 정상 2일뿐이고, 전역 rule(3일 기준)은 G4에서 걸러진다
+    from hc.gates import gate_candidates
+    evs = []
+    for i in range(10):
+        evs += [ev(f"s{i}", f"2026-10-0{1 + i % 2}T00:00:0{k}Z", "tool_error", "E", "Bash", "sig1") for k in range(3)]
+    evs += [ev("s0", "2026-10-03 garbage", "tool_error", "E", "Bash", "sig1")]
+    sig = detect_failure_loops(evs, CFG)[0]
+    assert sig.days == ["2026-10-01", "2026-10-02"]
+    s = {"id": sig.id, "surfaces": sig.surfaces, "sessions": sig.sessions, "groups": sig.sessions,
+         "days": sig.days, "count": sig.count}
+    c = {"id": "hc-1", "signal_ids": [sig.id], "form": "rule", "title": "t",
+         "proposed_change": {"action": "create", "path": "rules/r.md", "summary": "s"}}
+    keep, _, filt = gate_candidates([c], [s], CFG)
+    assert keep == [] and filt == [{"gate": "G4", "candidate_id": "hc-1"}]
