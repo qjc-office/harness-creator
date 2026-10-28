@@ -148,8 +148,9 @@ def detect_failure_loops(events, cfg) -> list:
     out = []
     for sig, sessions in per.items():
         looping = {sid: g for sid, g in sessions.items() if len(g) >= th["min_repeats_in_session"]}
-        if len(looping) >= th["min_sessions"]:
-            out.append(_finish("failure_loop", sig, [e for g in looping.values() for e in g], cfg))
+        group = [e for g in looping.values() for e in g]
+        if len(looping) >= th["min_sessions"] and len({_local_day(e.ts) for e in group}) >= th["min_days"]:
+            out.append(_finish("failure_loop", sig, group, cfg))
     return out
 
 # 가림 자리표시만 남은 발화([SECRET]·[NAME]·사용자 정규식 라벨 등). 라벨 형식은 redact 의 패턴 라벨과 같다
@@ -203,7 +204,7 @@ def detect_repeated_instructions(events, cfg) -> list:
     out = []
     for cl in clusters:
         evs = [e for e, _ in cl]
-        if len({e.session_id for e in evs}) >= th["min_sessions"]:
+        if len({e.session_id for e in evs}) >= th["min_sessions"] and len({_local_day(e.ts) for e in evs}) >= th["min_days"]:
             out.append(_finish("repeated_instruction", _stable_key(evs), evs, cfg))
     LAST_RESUME_SKIPPED = resume
     return out

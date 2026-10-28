@@ -44,14 +44,14 @@ def test_permission_and_hook_errors_count_as_failure():
     evs = []
     for sid in ("a", "b"):
         for i in range(3):
-            evs.append(ev(sid, "t", "permission_denied", "permission-rule", "Bash", "p1"))
+            evs.append(ev(sid, f"2026-10-0{1 if sid=='a' else 2}T00:00:0{i}Z", "permission_denied", "permission-rule", "Bash", "p1"))
     assert detect_failure_loops(evs, CFG)[0].type == "failure_loop"
 
 def test_surfaces_recorded():
     evs = []
     for sid, sf in (("a", "claude"), ("b", "codex")):
         for i in range(3):
-            evs.append(ev(sid, "t", "tool_error", "E", "exec", "z", sf))
+            evs.append(ev(sid, f"2026-10-0{1 if sid=='a' else 2}T00:00:0{i}Z", "tool_error", "E", "exec", "z", sf))
     assert sorted(detect_failure_loops(evs, CFG)[0].surfaces) == ["claude", "codex"]
 
 def test_load_events_dedupes_identical_lines(cache):
@@ -205,3 +205,19 @@ def test_signal_days_listed():
            ev("b", "2026-10-02T05:00:00Z", "user_msg", "그렇게 하지 마")]
     s = detect_corrections(evs, CFG)[0]
     assert len(s.days) == 2 and all(len(x) == 10 for x in s.days)
+
+# --- 실패 반복도 서로 다른 날 기준(min_days)을 따른다 ---
+def test_failure_loop_same_day_is_not_a_signal():
+    evs = [ev(sid, f"2026-10-01T0{h}:00:0{i}Z", "tool_error", "E", "Bash", "sig1")
+           for sid, h in (("a", 1), ("b", 2)) for i in range(3)]
+    assert detect_failure_loops(evs, CFG) == []
+
+def test_failure_loop_days_count_only_looping_sessions():
+    # c는 다른 날이지만 반복 3회 미만이라 날짜 수에 넣지 않는다
+    evs = [ev(sid, f"2026-10-01T0{h}:00:0{i}Z", "tool_error", "E", "Bash", "sig1")
+           for sid, h in (("a", 1), ("b", 2)) for i in range(3)]
+    evs.append(ev("c", "2026-10-02T00:00:00Z", "tool_error", "E", "Bash", "sig1"))
+    assert detect_failure_loops(evs, CFG) == []
+
+def test_failure_loop_min_days_in_defaults():
+    assert CFG["thresholds"]["failure_loop"]["min_days"] == 2

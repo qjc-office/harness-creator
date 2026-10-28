@@ -13,11 +13,12 @@ def _seed_signal(cache):
     """신호 1개(실패 루프: 2세션 × 같은 오류 3회)가 나오는 이벤트. 신호가 0건이면 러너가 판정을 생략하므로
     판정 단계를 보는 테스트는 이것을 깔고 돈다."""
     d = cache / "events"; d.mkdir(parents=True, exist_ok=True)
-    ts = lambda k: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600 + k))
+    # 실패 반복은 서로 다른 날 2일 이상이어야 신호가 되므로 sb는 하루(25시간) 전에 둔다
+    ts = lambda s, k: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 3600 - (86400 if s == "sb" else 0) + k))
     rec = ('{{"surface": "claude", "session_id": "{s}", "ts": "{t}", "cwd": "/w", "kind": "tool_error", '
            '"text": "boom", "tool": "Bash", "error_sig": "abc123abc123"}}\n')
     # 원문이 같은 줄은 탐지가 한 번만 세므로 시각을 1초씩 다르게 둔다
-    (d / "seed.jsonl").write_text("".join(rec.format(s=s, t=ts(k)) for s in ("sa", "sb") for k in range(3)))
+    (d / "seed.jsonl").write_text("".join(rec.format(s=s, t=ts(s, k)) for s in ("sa", "sb") for k in range(3)))
 
 def _run(tmp_path, stub_body, extra_env=None, pre=None, seed=True):
     home = tmp_path / "home"

@@ -10,8 +10,8 @@
   "estimate_mb_per_min": 1000,
   "thresholds": {
     "correction": {"min_sessions": 2, "min_days": 2},
-    "failure_loop": {"min_repeats_in_session": 3, "min_sessions": 2},
-    "repeated_instruction": {"min_sessions": 3, "jaccard": 0.6}
+    "failure_loop": {"min_repeats_in_session": 3, "min_sessions": 2, "min_days": 2},
+    "repeated_instruction": {"min_sessions": 3, "min_days": 2, "jaccard": 0.6}
   },
   "suppress_rejected_until_ratio": 2.0,
   "samples_per_signal": 3,

@@ -10,7 +10,9 @@ CFG = load_config()
 def ev(sid, ts, kind, text="", tool="", sig="", surface="claude"):
     return Event(surface, sid, ts, "/w", kind, text, tool, sig)
 
-def u(sid, text, ts="2026-10-01T00:00:00Z"):
+def u(sid, text, ts=None):
+    # 지시 반복은 서로 다른 날 2일 이상이어야 신호가 된다. 시각을 안 주면 a만 10-01, 나머지는 10-02
+    ts = ts or ("2026-10-01T00:00:00Z" if sid == "a" else "2026-10-02T00:00:00Z")
     return Event("claude", sid, ts, "/w", "user_msg", text)
 
 def test_similar_instructions_across_three_sessions():
@@ -98,7 +100,7 @@ def test_key_is_most_frequent_normalized_text():
     assert _norm_instruction(A) != _norm_instruction(B)
     evs = [u("a", B, "2026-10-01T00:00:00Z"),
            u("b", A, "2026-10-01T00:00:01Z"),
-           u("c", A, "2026-10-01T00:00:02Z")]
+           u("c", A, "2026-10-02T00:00:02Z")]
     sigs = detect_repeated_instructions(evs, CFG)
     assert len(sigs) == 1 and sigs[0].key == _key(A)
     assert sigs[0].id == f"repeated_instruction:{_key(A)}"
@@ -216,8 +218,9 @@ def test_run_detect_applies_g1_g2_and_records_observed(cache):
     d = cache / "events"; d.mkdir(parents=True)
     now = datetime(2026, 10, 9, 12, tzinfo=timezone.utc).timestamp()
     evs = [Event("claude", f"st{i}", f"2026-10-0{3 + i}T00:00:00Z", "/w", "user_msg", STALE) for i in range(3)]
-    evs += [Event("claude", f"bt{i}", f"2026-10-08T00:00:0{i}Z", "/w", "user_msg", BATCH) for i in range(3)]
-    evs += [Event("claude", f"kp{i}", f"2026-10-08T0{i + 2}:00:00Z", "/w", "user_msg", KEEP) for i in range(3)]
+    evs += [Event("claude", f"bt{i}", f"2026-10-08T00:00:0{i}Z", "/w", "user_msg", BATCH) for i in range(2)]
+    evs += [Event("claude", "bt2", "2026-10-07T00:00:00Z", "/w", "user_msg", BATCH)]
+    evs += [Event("claude", f"kp{i}", f"2026-10-0{7 + (i > 0)}T0{i + 2}:00:00Z", "/w", "user_msg", KEEP) for i in range(3)]
     f = d / "2026-10-08.jsonl"
     f.write_text("".join(dumps(e) + "\n" for e in evs), encoding="utf-8")
     os.utime(f, (now - 3600, now - 3600))
@@ -241,3 +244,17 @@ def test_resume_skipped_counts_only_length_passing():
     evs = [u(f"r{i}", "계속", f"2026-10-0{i + 1}T00:00:00Z") for i in range(3)]
     evs += [u(f"c{i}", "continue", f"2026-10-0{i + 1}T01:00:00Z") for i in range(2)]
     assert detect_repeated_instructions(evs, CFG) == [] and detect.LAST_RESUME_SKIPPED == 2
+
+# --- 지시 반복도 서로 다른 날 기준(min_days)을 따른다 ---
+def test_repeated_instruction_same_day_is_not_a_signal():
+    evs = [u(s, "PR 만들고 CI 통과하면 머지해줘", f"2026-10-01T0{i}:00:00Z") for i, s in enumerate("abc")]
+    assert detect_repeated_instructions(evs, CFG) == []
+
+def test_repeated_instruction_two_days_is_a_signal():
+    evs = [u("a", "PR 만들고 CI 통과하면 머지해줘", "2026-10-01T00:00:00Z"),
+           u("b", "PR 만들고 CI 통과하면 머지해줘", "2026-10-01T01:00:00Z"),
+           u("c", "PR 만들고 CI 통과하면 머지해줘", "2026-10-02T01:00:00Z")]
+    assert len(detect_repeated_instructions(evs, CFG)) == 1
+
+def test_repeated_instruction_min_days_in_defaults():
+    assert CFG["thresholds"]["repeated_instruction"]["min_days"] == 2
