@@ -258,3 +258,7 @@ def test_repeated_instruction_two_days_is_a_signal():
 
 def test_repeated_instruction_min_days_in_defaults():
     assert CFG["thresholds"]["repeated_instruction"]["min_days"] == 2
+
+def test_repeated_instruction_unparseable_ts_not_counted_as_days():
+    evs = [u(s, "PR 만들고 CI 통과하면 머지해줘", f"2026-10-0{i + 1} garbage") for i, s in enumerate("abc")]
+    assert detect_repeated_instructions(evs, CFG) == []

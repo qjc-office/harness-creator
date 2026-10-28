@@ -85,6 +85,10 @@ def _local_day(ts: str) -> str:
     dt = _parse_ts(ts)
     return dt.astimezone().date().isoformat() if dt else str(ts)[:10]
 
+def _day_count(evs) -> int:
+    """기준(min_days) 판정용 서로 다른 날 수. 시각을 못 읽은 이벤트는 날짜를 알 수 없으므로 세지 않는다."""
+    return len({dt.astimezone().date() for dt in (_parse_ts(e.ts) for e in evs) if dt})
+
 _PUNCT = re.compile(r"[.,!?~…·'\"()\[\]]")
 
 def _norm_correction(text: str) -> str:
@@ -124,8 +128,7 @@ def detect_corrections(events, cfg) -> list:
                 ctx[key] += [(p.ts, f"{p.tool}: {p.text[:120]}") for p in prev[-2:]]
     out = []
     for key, g in groups.items():
-        days = {_local_day(e.ts) for e in g}
-        if len({e.session_id for e in g}) >= th["min_sessions"] and len(days) >= th["min_days"]:
+        if len({e.session_id for e in g}) >= th["min_sessions"] and _day_count(g) >= th["min_days"]:
             out.append(_finish("correction", key, g, cfg, _latest_unique(ctx[key])))
     return out
 
@@ -149,7 +152,7 @@ def detect_failure_loops(events, cfg) -> list:
     for sig, sessions in per.items():
         looping = {sid: g for sid, g in sessions.items() if len(g) >= th["min_repeats_in_session"]}
         group = [e for g in looping.values() for e in g]
-        if len(looping) >= th["min_sessions"] and len({_local_day(e.ts) for e in group}) >= th["min_days"]:
+        if len(looping) >= th["min_sessions"] and _day_count(group) >= th["min_days"]:
             out.append(_finish("failure_loop", sig, group, cfg))
     return out
 
@@ -204,7 +207,7 @@ def detect_repeated_instructions(events, cfg) -> list:
     out = []
     for cl in clusters:
         evs = [e for e, _ in cl]
-        if len({e.session_id for e in evs}) >= th["min_sessions"] and len({_local_day(e.ts) for e in evs}) >= th["min_days"]:
+        if len({e.session_id for e in evs}) >= th["min_sessions"] and _day_count(evs) >= th["min_days"]:
             out.append(_finish("repeated_instruction", _stable_key(evs), evs, cfg))
     LAST_RESUME_SKIPPED = resume
     return out

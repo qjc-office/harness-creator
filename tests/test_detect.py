@@ -221,3 +221,14 @@ def test_failure_loop_days_count_only_looping_sessions():
 
 def test_failure_loop_min_days_in_defaults():
     assert CFG["thresholds"]["failure_loop"]["min_days"] == 2
+
+# --- 시각을 못 읽은 이벤트는 날짜 수에 넣지 않는다(문자열 앞 10자를 날짜로 오인 금지) ---
+def test_failure_loop_unparseable_ts_not_counted_as_days():
+    evs = [ev(sid, f"2026-10-0{d} garbage{i}", "tool_error", "E", "Bash", "sig1")
+           for sid, d in (("a", 1), ("b", 2)) for i in range(3)]
+    assert detect_failure_loops(evs, CFG) == []
+
+def test_correction_unparseable_ts_not_counted_as_days():
+    evs = [ev("a", "2026-10-01 garbage", "user_msg", "그렇게 하지 마"),
+           ev("b", "2026-10-02 garbage", "user_msg", "그렇게 하지 마")]
+    assert detect_corrections(evs, CFG) == []
