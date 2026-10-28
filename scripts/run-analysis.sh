@@ -141,7 +141,11 @@ ISO=(-p --output-format json --model "$MODEL" \
   --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
   --tools "" \
   --disallowedTools "Bash,Read,Write,Edit,MultiEdit,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Agent,Task,Skill,TodoWrite,Monitor,SendMessage,Artifact,ArtifactData,ArtifactComments,ToolSearch,EnterWorktree,ExitWorktree,CronCreate,RemoteTrigger,TaskStop,PushNotification,ScheduleWakeup")
-if ! JCWD="$(mktemp -d "${TMPDIR:-/tmp}/hc-judge.XXXXXX")" || [ -z "$JCWD" ]; then
+JUDGE_TMPDIR="${TMPDIR:-/tmp}"
+case "$JUDGE_TMPDIR" in
+  "$DATA"|"$DATA"/*) JUDGE_TMPDIR="$(dirname "$DATA")" ;;
+esac
+if ! JCWD="$(mktemp -d "$JUDGE_TMPDIR/hc-judge.XXXXXX")" || [ -z "$JCWD" ]; then
   JCWD=""; _render_err judge "rc=1"; _fail "could not create a temporary folder for the judge"; exit 2
 fi
 case "$CLAUDE" in ''|/*) ;; *) CLAUDE="$PWD/$CLAUDE" ;; esac
