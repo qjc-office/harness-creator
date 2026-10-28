@@ -261,6 +261,24 @@ _hc_preserve_invalid() {
     LAST_INVALID="$INVALID"
   fi
 }
+
+# 판정 1회 + 형식 검사. 성공하면 JUDGED 로 옮긴다. 응답 해석 실패·형식 검사 거부만 JUDGE_RETRYABLE=1 이고,
+# 실행 실패·시간 초과·격리 위반은 다시 돌리지 않는다. 깨진 응답(rc 65·66)은 시도 번호를 붙여 보존한다.
+_hc_attempt() {
+  _hc_judge "$1"
+  FAIL_WHY="response parse rc=$rc"
+  if [ "$rc" -eq 0 ]; then
+    if "${CLI[@]}" validate "$ATTEMPT_JUDGED" >> "$LOG" 2>&1; then
+      mv -f "$ATTEMPT_JUDGED" "$JUDGED"
+      JUDGE_OK=1
+      return
+    fi
+    FAIL_WHY="validate rejected"; JUDGE_RETRYABLE=1
+    _hc_preserve_invalid "$1"
+    return
+  fi
+  case "$rc" in 65|66) _hc_preserve_invalid "$1" ;; esac
+}
 rc=0
 JUDGE_OK=0
 if [ "$NSIG" -eq 0 ]; then
@@ -271,43 +289,11 @@ if [ "$NSIG" -eq 0 ]; then
 else
   _hc_judge_prepare
   JUDGE_OK=0
-  LAST_INVALID=""
-  _hc_judge 1
-  if [ "$rc" -eq 0 ]; then
-    if "${CLI[@]}" validate "$ATTEMPT_JUDGED" >> "$LOG" 2>&1; then
-      mv -f "$ATTEMPT_JUDGED" "$JUDGED"
-      JUDGE_OK=1
-    else
-      _hc_preserve_invalid 1
-      _log "judge retry attempt=2 after attempt=1 failed: validate rejected"
-      _hc_judge 2
-      if [ "$rc" -eq 0 ]; then
-        if "${CLI[@]}" validate "$ATTEMPT_JUDGED" >> "$LOG" 2>&1; then
-          mv -f "$ATTEMPT_JUDGED" "$JUDGED"
-          JUDGE_OK=1
-        else
-          _hc_preserve_invalid 2
-        fi
-      else
-        case "$rc" in 65|66) _hc_preserve_invalid 2 ;; esac
-      fi
-    fi
-  elif [ "$rc" -eq 65 ] && [ "$JUDGE_RETRYABLE" -eq 1 ]; then
-    _hc_preserve_invalid 1
-    _log "judge retry attempt=2 after attempt=1 failed: response parse rc=65"
-    _hc_judge 2
-    if [ "$rc" -eq 0 ]; then
-      if "${CLI[@]}" validate "$ATTEMPT_JUDGED" >> "$LOG" 2>&1; then
-        mv -f "$ATTEMPT_JUDGED" "$JUDGED"
-        JUDGE_OK=1
-      else
-        _hc_preserve_invalid 2
-      fi
-    else
-      case "$rc" in 65|66) _hc_preserve_invalid 2 ;; esac
-    fi
-  elif [ "$rc" -eq 66 ]; then
-    _hc_preserve_invalid 1
+  LAST_INVALID=""; FAIL_WHY=""
+  _hc_attempt 1
+  if [ "$JUDGE_OK" -ne 1 ] && [ "$JUDGE_RETRYABLE" -eq 1 ]; then
+    _log "judge retry attempt=2 after attempt=1 failed: $FAIL_WHY"
+    _hc_attempt 2
   fi
 fi
 
@@ -316,6 +302,7 @@ if [ "$JUDGE_OK" -ne 1 ] && [ "$NSIG" -ne 0 ]; then
     cp -f "$LAST_INVALID" "${JUDGED%.json}.invalid.json"
   fi
   det="rc=$rc"; [ "$rc" -eq 66 ] && det="rc=$rc isolation"
+  [ "$FAIL_WHY" = "validate rejected" ] && det="rc=$rc validate rejected"
   _render_err judge "$det"; _fail "propose/validate failed $det"; exit 2
 fi
 if ! CANDS="$("${CLI[@]}" gate "$JUDGED" 2>> "$LOG")" || [ ! -f "$CANDS" ]; then
