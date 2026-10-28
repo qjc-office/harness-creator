@@ -173,7 +173,7 @@ def _ev(sid, ts, kind, text, tool=""):
 def _seed_raw_events(cache):
     """가림 단어 목록이 없던 때 수집된 이벤트(원문 Acme가 남아 있다)."""
     d = cache / "events"; d.mkdir(parents=True)
-    lines = [_ev(f"kp{i}", f"2026-10-08T0{i + 2}:00:00Z", "user_msg", _INSTR) for i in range(3)]
+    lines = [_ev(f"kp{i}", f"2026-10-0{7 + (i > 0)}T0{i + 2}:00:00Z", "user_msg", _INSTR) for i in range(3)]
     lines += [_ev("ca", "2026-10-07T03:00:00Z", "tool_call", "deploy Acme prod", "Bash"),
               _ev("ca", "2026-10-07T03:01:00Z", "user_msg", "그렇게 하지 마"),
               _ev("cb", "2026-10-08T09:00:00Z", "tool_call", "deploy Acme prod", "Bash"),

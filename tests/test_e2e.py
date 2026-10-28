@@ -54,7 +54,8 @@ def test_clean_room_end_to_end(tmp_path):
     base = datetime.now(timezone.utc) - timedelta(days=1)
     for e in range(5):                      # 신호 5개(실패 루프), 각각 2세션 × 3회. 반복 지시·정정 신호는 0개
         for s in range(2):
-            _claude_session(proj, f"e{e}s{s}", base + timedelta(hours=e * 3 + s), f"error kind {ERRS[e]}",
+            # 실패 반복은 서로 다른 날 2일 이상이어야 신호가 되므로 s1은 하루 전
+            _claude_session(proj, f"e{e}s{s}", base + timedelta(hours=e * 3) - timedelta(days=s), f"error kind {ERRS[e]}",
                             TOPICS[e * 2 + s])
     cx = home / ".codex" / "sessions" / "2026" / "10" / "09"; cx.mkdir(parents=True)
     (cx / "rollout-a.jsonl").write_text(json.dumps({"type": "session_meta", "timestamp": _ts(base, 0),
